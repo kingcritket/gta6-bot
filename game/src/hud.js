@@ -1,139 +1,113 @@
-// DOM HUD: cash, mission, wanted stars, health, ammo, prompts, message toast and
-// the 2D minimap. Pure DOM/canvas — no three.js in here. Values are only written
-// when they change, so the HUD never churns the DOM every frame.
-import { MISSIONS, ROADS } from './config.js';
+// HUD + minimap for Port Vela: plain DOM text plus a 2D canvas map of the city.
+import { MISSIONS } from './missions.js';
+import { ROAD_COORDS } from './city.js';
 
-const MAP_SIZE = 180;
-const MAP_HALF = 130; // city spans -130..130 on the minimap
-const MAP_SCALE = MAP_SIZE / (MAP_HALF * 2);
+const MAP_EXTENT = 125;
 
-export function createHud(elements) {
-  const { cashEl, missionEl, objectiveEl, starsEl, healthFill, healthText, ammoEl, promptEl, messageEl, minimap } = elements;
-  const mapCtx = minimap.getContext('2d');
-  let lastCash = -1;
-  let lastMission = -1;
-  let lastStars = -1;
-  let lastHealth = -1;
-  let lastAmmo = null;
-  let lastPrompt = null;
-  let lastMessage = null;
+export function createHud(els) {
+  const map = els.minimap.getContext('2d');
+  const scale = els.minimap.width / (MAP_EXTENT * 2);
 
-  const toMap = (x, z) => [(x + MAP_HALF) * MAP_SCALE, (z + MAP_HALF) * MAP_SCALE];
+  function toMap(v) {
+    return (v + MAP_EXTENT) * scale;
+  }
 
-  function drawMinimap(state) {
-    const ctx = mapCtx;
-    ctx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
-    ctx.fillStyle = '#20242a';
-    ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+  function drawMinimap(world, now) {
+    const w = els.minimap.width;
+    const h = els.minimap.height;
+    map.fillStyle = '#0d1420';
+    map.fillRect(0, 0, w, h);
     // Roads.
-    ctx.fillStyle = '#3a3f46';
-    for (const c of ROADS) {
-      const [x] = toMap(c, 0);
-      ctx.fillRect(x - 4.5, 0, 9, MAP_SIZE);
-      const [, z] = toMap(0, c);
-      ctx.fillRect(0, z - 4.5, MAP_SIZE, 9);
+    map.strokeStyle = '#66707e';
+    map.lineWidth = 3;
+    for (const c of ROAD_COORDS) {
+      map.beginPath();
+      map.moveTo(0, toMap(c));
+      map.lineTo(w, toMap(c));
+      map.stroke();
+      map.beginPath();
+      map.moveTo(toMap(c), 0);
+      map.lineTo(toMap(c), h);
+      map.stroke();
     }
-    // Plaza fountain.
-    const [px, pz] = toMap(0, 0);
-    ctx.fillStyle = '#7fb3d5';
-    ctx.beginPath();
-    ctx.arc(px, pz, 6, 0, Math.PI * 2);
-    ctx.fill();
+    // Buildings.
+    map.fillStyle = '#42506a';
+    for (const b of world.city.buildings) {
+      map.fillRect(toMap(b.x - b.w / 2), toMap(b.z - b.d / 2), b.w * scale, b.d * scale);
+    }
+    // Plaza.
+    map.fillStyle = '#8a7a5a';
+    map.beginPath();
+    map.arc(toMap(0), toMap(0), 19 * scale, 0, Math.PI * 2);
+    map.fill();
     // Mission marker, pulsing.
-    if (state.marker.active) {
-      const [mx, mz] = toMap(state.marker.x, state.marker.z);
-      ctx.fillStyle = '#ffd23f';
-      ctx.beginPath();
-      ctx.arc(mx, mz, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#ffd23f';
-      ctx.beginPath();
-      ctx.arc(mx, mz, 8 + Math.sin(performance.now() / 300) * 2, 0, Math.PI * 2);
-      ctx.stroke();
+    if (world.marker.active) {
+      const pulse = 3 + Math.sin(now * 4) * 1.5;
+      map.fillStyle = '#ffd166';
+      map.beginPath();
+      map.arc(toMap(world.marker.x), toMap(world.marker.z), pulse, 0, Math.PI * 2);
+      map.fill();
     }
-    // Enemies in red, police in blue, traffic in grey.
-    ctx.fillStyle = '#ff4b33';
-    for (const e of state.enemies) {
-      if (!e.alive) continue;
-      const [ex, ez] = toMap(e.x, e.z);
-      ctx.fillRect(ex - 2, ez - 2, 4, 4);
-    }
-    ctx.fillStyle = '#4f8cff';
-    for (const cop of state.police) {
-      const [cx, cz] = toMap(cop.x, cop.z);
-      ctx.beginPath();
-      ctx.arc(cx, cz, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = '#cfd6dd';
-    for (const car of state.cars) {
+    // Cars.
+    for (const car of world.cars) {
       if (!car.active) continue;
-      const [cx, cz] = toMap(car.x, car.z);
-      ctx.fillRect(cx - 1.5, cz - 1.5, 3, 3);
+      map.fillStyle = car.kind === 'police' ? '#4a90ff' : '#9aa4b0';
+      map.beginPath();
+      map.arc(toMap(car.x), toMap(car.z), car.kind === 'police' ? 3 : 2, 0, Math.PI * 2);
+      map.fill();
     }
-    // Player arrow, rotated to the heading.
-    const p = state.player;
-    const [ux, uz] = toMap(p.x, p.z);
-    ctx.save();
-    ctx.translate(ux, uz);
-    ctx.rotate(Math.atan2(Math.sin(p.heading), Math.cos(p.heading)) + Math.PI);
-    ctx.fillStyle = '#2f9e44';
-    ctx.beginPath();
-    ctx.moveTo(0, -6);
-    ctx.lineTo(4.5, 5);
-    ctx.lineTo(-4.5, 5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+    // Gang members.
+    map.fillStyle = '#ff4a4a';
+    for (const e of world.enemies) {
+      if (!e.alive) continue;
+      map.beginPath();
+      map.arc(toMap(e.x), toMap(e.z), 3, 0, Math.PI * 2);
+      map.fill();
+    }
+    // Player arrow.
+    const p = world.player;
+    map.fillStyle = '#ffffff';
+    map.save();
+    map.translate(toMap(p.x), toMap(p.z));
+    map.rotate(Math.atan2(Math.sin(p.heading), Math.cos(p.heading)) + Math.PI);
+    map.beginPath();
+    map.moveTo(0, -6);
+    map.lineTo(4.5, 5);
+    map.lineTo(-4.5, 5);
+    map.closePath();
+    map.fill();
+    map.restore();
   }
 
-  function update(state, prompt) {
-    if (state.cash !== lastCash) {
-      lastCash = state.cash;
-      cashEl.textContent = `$${state.cash.toLocaleString('en-US')}`;
-    }
-    if (state.missionIndex !== lastMission) {
-      lastMission = state.missionIndex;
-      const m = MISSIONS[state.missionIndex];
-      if (m) {
-        missionEl.textContent = `Misi ${m.id}/5: ${m.name}`;
-        objectiveEl.textContent = m.objective;
+  return {
+    update(world, prompt) {
+      const p = world.player;
+      els.cash.textContent = `$${world.cash.toLocaleString('en-US')}`;
+      if (world.allDone) {
+        els.mission.textContent = 'Port Vela Milikmu';
+        els.objective.textContent = 'Semua misi selesai. Jelajahi kota dengan bebas.';
       } else {
-        missionEl.textContent = 'Port Vela milikmu!';
-        objectiveEl.textContent = 'Jelajahi kota dengan bebas.';
+        const def = MISSIONS[world.missionIndex];
+        els.mission.textContent = def.title;
+        els.objective.textContent = def.objective;
       }
-    }
-    if (state.wanted !== lastStars) {
-      lastStars = state.wanted;
-      starsEl.textContent = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
-      starsEl.classList.toggle('hot', state.wanted > 0);
-    }
-    const health = Math.max(0, Math.round(state.player.health));
-    if (health !== lastHealth) {
-      lastHealth = health;
-      healthFill.style.width = `${health}%`;
-      healthText.textContent = `${health}`;
-      healthFill.classList.toggle('low', health <= 30);
-    }
-    const ammo = state.player.inCar ? '—' : `${state.player.ammo} / ∞`;
-    const ammoText = state.player.reload > 0 ? 'Reloading…' : ammo;
-    if (ammoText !== lastAmmo) {
-      lastAmmo = ammoText;
-      ammoEl.textContent = ammoText;
-    }
-    if (prompt !== lastPrompt) {
-      lastPrompt = prompt;
-      promptEl.textContent = prompt || '';
-      promptEl.style.display = prompt ? 'block' : 'none';
-    }
-    const msg = state.messageTimer > 0 ? state.message : '';
-    if (msg !== lastMessage) {
-      lastMessage = msg;
-      messageEl.textContent = msg;
-      messageEl.style.display = msg ? 'block' : 'none';
-    }
-    drawMinimap(state);
-  }
-
-  return { update };
+      els.stars.textContent = '★'.repeat(world.wanted) + '☆'.repeat(5 - world.wanted);
+      els.healthFill.style.width = `${Math.max(0, p.health)}%`;
+      els.healthText.textContent = String(Math.round(p.health));
+      els.ammoCount.textContent = `${p.ammo}${p.reloading ? ' …' : ''}`;
+      if (prompt) {
+        els.prompt.textContent = prompt;
+        els.prompt.style.display = 'block';
+      } else {
+        els.prompt.style.display = 'none';
+      }
+      if (world.message) {
+        els.message.textContent = world.message;
+        els.message.style.display = 'block';
+      } else {
+        els.message.style.display = 'none';
+      }
+      drawMinimap(world, world.time);
+    },
+  };
 }

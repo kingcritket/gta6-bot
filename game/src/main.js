@@ -1,29 +1,18 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed
-// 1/60 s steps (several in a slow frame, none in a fast one), and the renderer
-// paints what is there. The game moves between five screens: title, play,
-// paused, wasted and done (all missions finished).
-//
-// ?seed=N fixes the city. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, renders it, and sets window.__shotReady.
-import { CAMERA, SAVE_KEY, STEP } from './config.js';
-import {
-  EVENT_ALL_DONE, EVENT_BUSTED, EVENT_CRASH, EVENT_HIT, EVENT_MISSION,
-  EVENT_PICKUP, EVENT_SHOT, EVENT_STEAL, EVENT_WASTED, createWorld,
-} from './world.js';
-import {
-  ACTION_CONFIRM, ACTION_INTERACT, ACTION_PAUSE, ACTION_RELOAD, ACTION_SHOOT,
-  createInput,
-} from './input.js';
-import {
-  SCREEN_DONE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED,
-  createRenderer,
-} from './render.js';
+// Port Vela boot + the one game loop. Input is read every frame, the world moves in
+// fixed 1/60 s steps, and the renderer paints what is there. Five screens: title,
+// play, paused, wasted and done. ?shot=start|play|end (with &seed=N) stages one
+// scene instead of running the loop, renders it, and sets window.__shotReady.
+import { createWorld, resetWorld, stepWorld, setMission, EV_BUSTED, EV_CRASH, EV_HIT, EV_MISSION, EV_SHOT, EV_STEAL, EV_WASTED, EV_DONE } from './world.js';
+import { ACT, createInput } from './input.js';
+import { createRenderer, SCREEN_DONE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED } from './render.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
 import { stageShot } from './shots.js';
-import { angleDiff, clamp, dist2 } from './random.js';
+import { angleDiff, clamp, dist2 } from './rng.js';
 
+const STEP = 1 / 60;
 const MAX_FRAME = 0.25;
+const SAVE_KEY = 'port-vela-save-v1';
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -31,7 +20,7 @@ const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
 const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
 const canvas = document.getElementById('game');
-const statusEl = document.getElementById('status');
+const status = document.getElementById('status');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayLines = document.getElementById('overlay-lines');
@@ -39,18 +28,21 @@ const overlayButtons = document.getElementById('overlay-buttons');
 const hudEl = document.getElementById('hud');
 
 const world = createWorld(seed);
-const renderer = createRenderer(canvas);
+const renderer = createRenderer(canvas, world.city);
 const audio = createAudio();
-const hud = createHud({
-  cashEl: document.getElementById('cash'),
-  missionEl: document.getElementById('mission'),
-  objectiveEl: document.getElementById('objective'),
-  starsEl: document.getElementById('stars'),
+
+// HUD element ids in the markup are cash/mission/objective/stars/health-fill/
+// health-text/ammo-count/prompt/message/minimap.
+const hudBound = createHud({
+  cash: document.getElementById('cash'),
+  mission: document.getElementById('mission'),
+  objective: document.getElementById('objective'),
+  stars: document.getElementById('stars'),
   healthFill: document.getElementById('health-fill'),
   healthText: document.getElementById('health-text'),
-  ammoEl: document.getElementById('ammo'),
-  promptEl: document.getElementById('prompt'),
-  messageEl: document.getElementById('message'),
+  ammoCount: document.getElementById('ammo-count'),
+  prompt: document.getElementById('prompt'),
+  message: document.getElementById('message'),
   minimap: document.getElementById('minimap'),
 });
 
@@ -69,14 +61,14 @@ function readSave() {
 function writeSave() {
   try {
     window.localStorage.setItem(SAVE_KEY, JSON.stringify({
-      missionIndex: world.state.missionIndex,
-      cash: world.state.cash,
+      missionIndex: world.missionIndex,
+      cash: world.cash,
     }));
   } catch { /* storage can be off: progress then lasts this visit only */ }
 }
 
 let camYaw = Math.PI / 2;
-let camDist = 1;
+let camDist = 10;
 let lastDragAt = -10;
 
 function showOverlay(title, lines, buttons) {
@@ -107,17 +99,13 @@ function hideOverlay() {
   hudEl.style.display = 'block';
 }
 
-function announce(message) {
-  statusEl.textContent = message;
-}
-
 function runShot(name) {
   const scene = stageShot(name, world);
   camYaw = scene.camYaw;
   let painted = 0;
   function paint() {
-    renderer.draw(world.state, camYaw, scene.screen, 1);
-    hud.update(world.state, '');
+    renderer.draw(world, camYaw, scene.screen, camDist, performance.now() / 1000);
+    hudBound.update(world, '');
     painted += 1;
     if (painted < 3) requestAnimationFrame(paint);
     else window.__shotReady = true;
@@ -140,15 +128,15 @@ function runGame() {
   let saveTimer = 0;
   const save = readSave();
 
+  function announce(message) {
+    status.textContent = message;
+  }
+
   function startGame(fromSave) {
-    world.reset();
+    resetWorld(world);
     if (fromSave && save) {
-      world.state.cash = save.cash;
-      world.setMission(Math.min(save.missionIndex, 4));
-      if (save.missionIndex >= 5) {
-        world.state.allDone = true;
-        world.state.marker.active = false;
-      }
+      world.cash = save.cash;
+      setMission(world, Math.min(save.missionIndex, 5));
     }
     camYaw = Math.PI / 2;
     accumulator = 0;
@@ -178,7 +166,7 @@ function runGame() {
     writeSave();
     audio.wasted();
     showOverlay(reason, [
-      `Misi ${world.state.missionIndex + 1}/5 — uang $${world.state.cash.toLocaleString('en-US')} tetap tersimpan.`,
+      `Misi ${world.missionIndex + 1}/5 — uang $${world.cash.toLocaleString('en-US')} tetap tersimpan.`,
       'Rook bangun lagi di bengkel Mara. Kota ini belum selesai denganmu.',
     ], [{ label: 'Bangun Lagi', onClick: () => startGame(true) }]);
     announce(`${reason}. Bangun lagi.`);
@@ -189,7 +177,7 @@ function runGame() {
     writeSave();
     audio.mission();
     showOverlay('PORT VELA MILIKMU', [
-      `Semua 5 misi selesai. Total uang: $${world.state.cash.toLocaleString('en-US')}.`,
+      `Semua 5 misi selesai. Total uang: $${world.cash.toLocaleString('en-US')}.`,
       'Rook dan Mara meninggalkan Port Vela saat fajar — legenda baru kota ini.',
       'Jelajahi kota dengan bebas, atau mulai dari awal.',
     ], [
@@ -199,49 +187,44 @@ function runGame() {
     announce('Semua misi selesai. Port Vela milikmu.');
   }
 
-  function pauseGame() {
-    screen = SCREEN_PAUSED;
-    showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
-    announce('Jeda.');
-  }
-
   function promptFor() {
-    const p = world.state.player;
+    const p = world.player;
     if (p.inCar) return 'E — keluar dari mobil';
     let best = Infinity;
-    for (const car of world.state.cars) {
-      if (!car.active || car.police) continue;
+    for (const car of world.cars) {
+      if (!car.active || car.kind === 'police') continue;
       best = Math.min(best, dist2(p.x, p.z, car.x, car.z));
     }
     if (best < 4.5 * 4.5) return 'E — curi mobil';
-    if (world.state.missionIndex === 3 && world.state.enemies.some((e) => e.alive)) {
+    if (world.missionIndex === 3 && world.enemies.some((e) => e.alive)) {
       return 'F / klik — tembak anggota geng Kobra';
     }
     return '';
   }
 
   function handleEvents(events) {
-    if (events & EVENT_SHOT) audio.shoot();
-    if (events & EVENT_HIT) audio.hit();
-    if (events & EVENT_CRASH) audio.crash();
-    if (events & EVENT_PICKUP) audio.pickup();
-    if (events & EVENT_STEAL) audio.steal();
-    if (events & EVENT_MISSION) {
+    if (events & EV_SHOT) audio.shoot();
+    if (events & EV_HIT) audio.hit();
+    if (events & EV_CRASH) audio.crash();
+    if (events & EV_STEAL) audio.steal();
+    if (events & EV_MISSION) {
       audio.mission();
       writeSave();
     }
-    if (events & EVENT_WASTED) showWasted('WASTED');
-    else if (events & EVENT_BUSTED) showWasted('DITANGKAP');
-    else if (events & EVENT_ALL_DONE) showDone();
+    if (events & EV_WASTED) showWasted('WASTED');
+    else if (events & EV_BUSTED) showWasted('DITANGKAP');
+    else if (events & EV_DONE) showDone();
   }
 
   function handleActions() {
     const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && screen === SCREEN_TITLE) {
+    if (actions & ACT.CONFIRM && screen === SCREEN_TITLE) {
       startGame(false);
-    } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      pauseGame();
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
+    } else if (actions & ACT.PAUSE && screen === SCREEN_PLAY) {
+      screen = SCREEN_PAUSED;
+      showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
+      announce('Jeda.');
+    } else if (actions & (ACT.PAUSE | ACT.CONFIRM) && screen === SCREEN_PAUSED) {
       screen = SCREEN_PLAY;
       hideOverlay();
       announce('Bermain.');
@@ -251,12 +234,16 @@ function runGame() {
 
   function step(actions) {
     if (screen === SCREEN_TITLE) return;
-    const simInput = {
-      move: () => input.move(),
-      takeMouse: () => ({ dx: 0, dy: 0 }),
+    const axis = input.axis();
+    const events = stepWorld(world, STEP, {
+      ax: axis.x,
+      az: axis.z,
+      run: input.runHeld(),
+      interact: !!(actions & ACT.INTERACT),
+      shoot: !!(actions & ACT.SHOOT),
+      reload: !!(actions & ACT.RELOAD),
       camYaw,
-    };
-    const events = world.step(STEP, simInput, actions & (ACTION_INTERACT | ACTION_SHOOT | ACTION_RELOAD));
+    });
     handleEvents(events);
   }
 
@@ -265,16 +252,15 @@ function runGame() {
     const dt = Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = handleActions();
-    // Camera yaw: mouse drag rotates it; otherwise it drifts behind the heading.
-    const mouse = input.takeMouse();
+    const mouse = input.takeDrag();
     const wheel = input.takeWheel();
-    if (wheel !== 0) camDist = clamp(camDist * (1 + wheel * 0.0006), CAMERA.zoomMin, CAMERA.zoomMax);
+    if (wheel !== 0) camDist = clamp(camDist * (1 + wheel * 0.0006), 6, 16);
     if (mouse.dx !== 0 || mouse.dy !== 0) {
       camYaw -= mouse.dx * 0.004;
       lastDragAt = now / 1000;
     } else if (screen === SCREEN_PLAY) {
-      const p = world.state.player;
-      const moving = p.inCar ? Math.abs(p.car.speed) > 2 : true;
+      const p = world.player;
+      const moving = p.inCar ? Math.abs(p.speed) > 2 : true;
       if (moving && now / 1000 - lastDragAt > 1.5) {
         camYaw += clamp(angleDiff(camYaw, p.heading), -1.1 * dt, 1.1 * dt);
       }
@@ -297,16 +283,20 @@ function runGame() {
         saveTimer = 0;
         writeSave();
       }
-      const p = world.state.player;
-      const speedNorm = p.inCar && p.car ? Math.abs(p.car.speed) / 30 : 0;
-      audio.update(dt, speedNorm, world.state.wanted);
-      hud.update(world.state, promptFor());
+      const p = world.player;
+      const speedNorm = p.inCar ? Math.abs(p.speed) / 30 : 0;
+      audio.update(dt, speedNorm, world.wanted);
+      hudBound.update(world, promptFor());
     }
-    renderer.draw(world.state, camYaw, screen, camDist);
+    renderer.draw(world, camYaw, screen, camDist, now / 1000);
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) pauseGame();
+    if (document.hidden && screen === SCREEN_PLAY) {
+      screen = SCREEN_PAUSED;
+      showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
+      announce('Jeda.');
+    }
   });
 
   showTitle();
