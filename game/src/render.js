@@ -1,141 +1,371 @@
-// Drawing only: the world's state and the current screen in, pixels out. The 1280x720 playfield
-// is scaled to fit the window and centred, the margin filled with the backdrop colour. Flat
-// rectangles and circles, canvas text for the HUD and the panels. Text that holds a number is
-// rebuilt only when the number changes, so a frame allocates nothing.
-import { FIELD, FONT, LIVES, PALETTE } from './config.js';
-import { KIND_COIN } from './world.js';
+// Drawing only: the three.js scene for Port Vela — city, cars, people, marker — plus the
+// third-person camera. No rules in here; it paints whatever the world state holds.
+import * as THREE from 'three';
+import { CAMERA, CITY, PALETTE } from './config.js';
+import { ROAD_CENTERS } from './world.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
-export const SCREEN_OVER = 'over';
+export const SCREEN_WASTED = 'wasted';
+export const SCREEN_DONE = 'done';
 
-/** The panel's width; its height grows with its lines: room for the title, the lines and the prompt. */
-const PANEL = { width: 600, top: 134, line: 34, bottom: 70 };
-const LIFE_SIZE = 20;
-const LIFE_GAP = 8;
-
-function cachedLabel(prefix) {
-  let value = -1;
-  let text = '';
-  return function label(next) {
-    if (next !== value) {
-      value = next;
-      text = prefix + next;
-    }
-    return text;
+function windowTexture(seed) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 128, 256);
+  let s = seed;
+  const rnd = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
   };
+  for (let row = 0; row < 10; row += 1) {
+    for (let col = 0; col < 5; col += 1) {
+      const lit = rnd() < 0.35;
+      ctx.fillStyle = lit ? '#ffd27a' : '#2c3844';
+      ctx.fillRect(8 + col * 24, 10 + row * 24, 14, 15);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function makeCarMesh(color, police) {
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.4 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, 4.4), bodyMat);
+  body.position.y = 0.55;
+  group.add(body);
+  const cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(1.7, 0.6, 2.2),
+    new THREE.MeshStandardMaterial({ color: 0x1c2733, roughness: 0.2, metalness: 0.6 }),
+  );
+  cabin.position.set(0, 1.15, -0.2);
+  group.add(cabin);
+  const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12);
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+  for (const [x, z] of [[-0.95, 1.5], [0.95, 1.5], [-0.95, -1.5], [0.95, -1.5]]) {
+    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(x, 0.36, z);
+    group.add(wheel);
+  }
+  if (police) {
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 0.18, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.3 }),
+    );
+    bar.position.set(0, 1.55, -0.2);
+    group.add(bar);
+    const lightL = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.2, 0.52),
+      new THREE.MeshStandardMaterial({ color: PALETTE.policeLight, emissive: PALETTE.policeLight, emissiveIntensity: 1 }),
+    );
+    lightL.position.set(-0.35, 1.56, -0.2);
+    group.add(lightL);
+    const lightR = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.2, 0.52),
+      new THREE.MeshStandardMaterial({ color: PALETTE.policeLight2, emissive: PALETTE.policeLight2, emissiveIntensity: 1 }),
+    );
+    lightR.position.set(0.35, 1.56, -0.2);
+    group.add(lightR);
+    group.userData.lights = [lightL, lightR];
+  }
+  return group;
+}
+
+function makePersonMesh(shirtColor) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.32, 0.38, 1.0, 10),
+    new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 }),
+  );
+  body.position.y = 0.9;
+  group.add(body);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8b98a, roughness: 0.7 }),
+  );
+  head.position.y = 1.62;
+  group.add(head);
+  const legs = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.26, 0.3, 0.45, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 0.9 }),
+  );
+  legs.position.y = 0.22;
+  group.add(legs);
+  return group;
 }
 
 export function createRenderer(canvas) {
-  const context = canvas.getContext('2d');
-  const view = { scale: 1, x: 0, y: 0 };
-  const scoreLabel = cachedLabel('Score ');
-  const levelLabel = cachedLabel('Level ');
-  const finalLabel = cachedLabel('Score ');
-  const bestLabel = cachedLabel('Best ');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  function resize() {
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.round(window.innerWidth * ratio);
-    const height = Math.round(window.innerHeight * ratio);
-    canvas.width = width;
-    canvas.height = height;
-    view.scale = Math.min(width / FIELD.width, height / FIELD.height);
-    view.x = (width - FIELD.width * view.scale) / 2;
-    view.y = (height - FIELD.height * view.scale) / 2;
-  }
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(PALETTE.sky);
+  scene.fog = new THREE.Fog(PALETTE.fog, 90, 260);
 
-  const fonts = new Map();
-  function text(value, x, y, size, color, align) {
-    if (!fonts.has(size)) fonts.set(size, `${size}px ${FONT}`);
-    context.font = fonts.get(size);
-    context.fillStyle = color;
-    context.textAlign = align;
-    context.fillText(value, x, y);
-  }
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 500);
 
-  function drawField(state) {
-    context.fillStyle = PALETTE.sky;
-    context.fillRect(0, 0, FIELD.width, FIELD.height);
-    context.fillStyle = PALETTE.ground;
-    context.fillRect(0, FIELD.groundY, FIELD.width, FIELD.height - FIELD.groundY);
+  const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x3a3f46, 0.9);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff1cf, 1.6);
+  sun.position.set(80, 120, 40);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -140;
+  sun.shadow.camera.right = 140;
+  sun.shadow.camera.top = 140;
+  sun.shadow.camera.bottom = -140;
+  sun.shadow.camera.far = 400;
+  scene.add(sun);
 
-    const items = state.items;
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index];
-      if (!item.active) continue;
-      if (item.kind === KIND_COIN) {
-        context.fillStyle = PALETTE.coin;
-        context.beginPath();
-        context.arc(item.x + item.width / 2, item.y + item.height / 2, item.width / 2, 0, Math.PI * 2);
-        context.fill();
-      } else {
-        context.fillStyle = PALETTE.block;
-        context.fillRect(item.x, item.y, item.width, item.height);
+  // ground
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(CITY.half * 2 + 40, CITY.half * 2 + 40),
+    new THREE.MeshStandardMaterial({ color: PALETTE.ground, roughness: 1 }),
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // roads (dark strips) + centre dashes
+  const roadMat = new THREE.MeshStandardMaterial({ color: PALETTE.road, roughness: 1 });
+  const dashMat = new THREE.MeshStandardMaterial({ color: 0xd8c95a, roughness: 0.8 });
+  for (const c of ROAD_CENTERS) {
+    for (const horizontal of [true, false]) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(CITY.half * 2, 12), roadMat);
+      strip.rotation.x = -Math.PI / 2;
+      if (horizontal) strip.rotation.z = Math.PI / 2;
+      strip.position.set(horizontal ? 0 : c, 0.02, horizontal ? c : 0);
+      strip.receiveShadow = true;
+      scene.add(strip);
+      for (let p = -110; p <= 110; p += 10) {
+        const dash = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.4), dashMat);
+        dash.rotation.x = -Math.PI / 2;
+        if (horizontal) dash.rotation.z = Math.PI / 2;
+        dash.position.set(horizontal ? p : c, 0.03, horizontal ? c : p);
+        scene.add(dash);
       }
     }
+  }
 
-    const player = state.player;
-    // Blink while invulnerable after a hit: hidden on every other tenth of a second.
-    if (player.invulnerable === 0 || Math.floor(player.invulnerable * 10) % 2 === 1) {
-      context.fillStyle = PALETTE.player;
-      context.fillRect(player.x, player.y, player.width, player.height);
+  // sidewalks: lighter squares on each block
+  const walkMat = new THREE.MeshStandardMaterial({ color: PALETTE.sidewalk, roughness: 1 });
+  for (let bx = -88; bx <= 88; bx += 44) {
+    for (let bz = -88; bz <= 88; bz += 44) {
+      const walk = new THREE.Mesh(new THREE.PlaneGeometry(34, 34), walkMat);
+      walk.rotation.x = -Math.PI / 2;
+      walk.position.set(bx, 0.015, bz);
+      walk.receiveShadow = true;
+      scene.add(walk);
     }
   }
 
-  function drawHud(state) {
-    context.textBaseline = 'top';
-    text(scoreLabel(state.score), 24, 20, 28, PALETTE.text, 'left');
-    text(levelLabel(state.level), FIELD.width / 2, 20, 28, PALETTE.text, 'center');
-    const firstLife = FIELD.width - 24 - LIVES * (LIFE_SIZE + LIFE_GAP) + LIFE_GAP;
-    text('Lives', firstLife - 12, 20, 28, PALETTE.text, 'right');
-    for (let life = 0; life < LIVES; life += 1) {
-      context.fillStyle = life < state.lives ? PALETTE.player : PALETTE.ground;
-      context.fillRect(firstLife + life * (LIFE_SIZE + LIFE_GAP), 24, LIFE_SIZE, LIFE_SIZE);
+  // plaza: open square with a fountain at the centre
+  const plaza = new THREE.Mesh(
+    new THREE.CylinderGeometry(6, 6, 0.5, 24),
+    new THREE.MeshStandardMaterial({ color: 0x7fb3d5, roughness: 0.3 }),
+  );
+  plaza.position.set(0, 0.25, 0);
+  scene.add(plaza);
+  const fountainJet = new THREE.Mesh(
+    new THREE.ConeGeometry(1.2, 2.4, 12),
+    new THREE.MeshStandardMaterial({ color: 0xaee2ff, roughness: 0.2, transparent: true, opacity: 0.7 }),
+  );
+  fountainJet.position.set(0, 1.6, 0);
+  scene.add(fountainJet);
+
+  const buildingTextures = [windowTexture(11), windowTexture(47), windowTexture(123)];
+  const buildingMeshes = [];
+  const treeMeshes = [];
+  const lampMeshes = [];
+
+  // mission marker: a beam of light + a ring on the ground
+  const markerBeam = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.1, 1.6, 30, 16, 1, true),
+    new THREE.MeshBasicMaterial({ color: PALETTE.marker, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  markerBeam.position.y = 15;
+  scene.add(markerBeam);
+  const markerRing = new THREE.Mesh(
+    new THREE.RingGeometry(2.2, 3.0, 32),
+    new THREE.MeshBasicMaterial({ color: PALETTE.marker, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+  );
+  markerRing.rotation.x = -Math.PI / 2;
+  markerRing.position.y = 0.06;
+  scene.add(markerRing);
+
+  // pooled meshes, keyed by the simulated object
+  const carMeshes = new Map();
+  const pedMeshes = new Map();
+  const enemyMeshes = new Map();
+  const policeMeshes = new Map();
+  let playerMesh = null;
+
+  function syncCar(car) {
+    let mesh = carMeshes.get(car);
+    if (!mesh) {
+      mesh = makeCarMesh(car.color, car.police);
+      mesh.traverse((o) => {
+        if (o.isMesh) o.castShadow = true;
+      });
+      scene.add(mesh);
+      carMeshes.set(car, mesh);
+    }
+    mesh.position.set(car.x, 0, car.z);
+    mesh.rotation.y = car.heading;
+    if (car.police && mesh.userData.lights) {
+      const phase = Math.floor(performance.now() / 260) % 2 === 0;
+      mesh.userData.lights[0].material.emissiveIntensity = phase ? 2.2 : 0.15;
+      mesh.userData.lights[1].material.emissiveIntensity = phase ? 0.15 : 2.2;
+    }
+    return mesh;
+  }
+
+  function syncPerson(map, obj, shirtColor) {
+    let mesh = map.get(obj);
+    if (!mesh) {
+      mesh = makePersonMesh(shirtColor);
+      mesh.traverse((o) => {
+        if (o.isMesh) o.castShadow = true;
+      });
+      scene.add(mesh);
+      map.set(obj, mesh);
+    }
+    mesh.position.set(obj.x, 0, obj.z);
+    mesh.rotation.y = obj.heading;
+    mesh.visible = !obj.down && obj.alive !== false;
+    // a downed ped lies on the ground
+    if (obj.down) {
+      mesh.visible = true;
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.y = 0.3;
+    } else {
+      mesh.rotation.x = 0;
+      mesh.position.y = 0;
+    }
+    return mesh;
+  }
+
+  function buildStatic(state) {
+    for (const mesh of buildingMeshes) scene.remove(mesh);
+    buildingMeshes.length = 0;
+    for (const b of state.buildings) {
+      const tex = buildingTextures[b.seed % buildingTextures.length];
+      const mat = new THREE.MeshStandardMaterial({ color: b.color, map: tex, roughness: 0.9 });
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), mat);
+      mesh.position.set(b.x, b.h / 2, b.z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      buildingMeshes.push(mesh);
+      // flat roof cap
+      const roof = new THREE.Mesh(
+        new THREE.BoxGeometry(b.w + 0.6, 0.4, b.d + 0.6),
+        new THREE.MeshStandardMaterial({ color: 0x3c4148, roughness: 1 }),
+      );
+      roof.position.set(b.x, b.h + 0.2, b.z);
+      scene.add(roof);
+      buildingMeshes.push(roof);
+    }
+    for (const t of state.trees) {
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.25, 1.6, 8),
+        new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 }),
+      );
+      trunk.position.set(t.x, 0.8, t.z);
+      trunk.castShadow = true;
+      scene.add(trunk);
+      treeMeshes.push(trunk);
+      const top = new THREE.Mesh(
+        new THREE.ConeGeometry(1.5, 3.2, 8),
+        new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 1 }),
+      );
+      top.position.set(t.x, 3.0, t.z);
+      top.castShadow = true;
+      scene.add(top);
+      treeMeshes.push(top);
+    }
+    for (const l of state.lamps) {
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.12, 5.4, 8),
+        new THREE.MeshStandardMaterial({ color: 0x22262b, roughness: 0.8 }),
+      );
+      pole.position.set(l.x, 2.7, l.z);
+      scene.add(pole);
+      lampMeshes.push(pole);
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.28, 10, 8),
+        new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffd27a, emissiveIntensity: 0.9 }),
+      );
+      bulb.position.set(l.x, 5.5, l.z);
+      scene.add(bulb);
+      lampMeshes.push(bulb);
     }
   }
 
-  function drawPanel(title, lines, prompt) {
-    const height = PANEL.top + lines.length * PANEL.line + PANEL.bottom;
-    const x = (FIELD.width - PANEL.width) / 2;
-    const y = (FIELD.height - height) / 2;
-    context.fillStyle = PALETTE.panel;
-    context.fillRect(x, y, PANEL.width, height);
-    context.textBaseline = 'alphabetic';
-    text(title, FIELD.width / 2, y + 78, 48, PALETTE.text, 'center');
-    for (let index = 0; index < lines.length; index += 1) {
-      text(lines[index], FIELD.width / 2, y + PANEL.top + index * PANEL.line, 22, PALETTE.muted, 'center');
+  function draw(state, camYaw, screen, camDist) {
+    if (buildingMeshes.length === 0) buildStatic(state);
+    const p = state.player;
+    if (!playerMesh) {
+      playerMesh = makePersonMesh(PALETTE.playerShirt);
+      playerMesh.traverse((o) => {
+        if (o.isMesh) o.castShadow = true;
+      });
+      scene.add(playerMesh);
     }
-    text(prompt, FIELD.width / 2, y + height - 40, 24, PALETTE.coin, 'center');
+    playerMesh.visible = !p.inCar;
+    if (!p.inCar) {
+      playerMesh.position.set(p.x, 0, p.z);
+      playerMesh.rotation.y = p.heading;
+    }
+    for (const car of state.cars) if (car.active) syncCar(car);
+    for (const cop of state.police) syncCar(cop);
+    for (const ped of state.peds) syncPerson(pedMeshes, ped, ped.color);
+    for (const e of state.enemies) syncPerson(enemyMeshes, e, e.color);
+
+    // marker
+    markerBeam.visible = state.marker.active;
+    markerRing.visible = state.marker.active;
+    if (state.marker.active) {
+      markerBeam.position.x = state.marker.x;
+      markerBeam.position.z = state.marker.z;
+      markerRing.position.x = state.marker.x;
+      markerRing.position.z = state.marker.z;
+      const pulse = 1 + Math.sin(performance.now() / 280) * 0.12;
+      markerRing.scale.set(pulse, pulse, 1);
+      markerBeam.material.opacity = 0.22 + Math.sin(performance.now() / 280) * 0.08;
+    }
+
+    // third-person camera (distance scaled by the mouse-wheel zoom)
+    const zoom = camDist ?? 1;
+    const dist = (p.inCar ? CAMERA.carDist : CAMERA.footDist) * zoom;
+    const height = (p.inCar ? CAMERA.carHeight : CAMERA.footHeight) * zoom;
+    const cx = p.x - Math.sin(camYaw) * dist;
+    const cz = p.z - Math.cos(camYaw) * dist;
+    camera.position.set(cx, height, cz);
+    camera.lookAt(p.x + Math.sin(camYaw) * 4, 1.4, p.z + Math.cos(camYaw) * 4);
+    sun.position.set(p.x + 80, 120, p.z + 40);
+    sun.target.position.set(p.x, 0, p.z);
+    sun.target.updateMatrixWorld();
+
+    renderer.render(scene, camera);
   }
 
-  const TITLE_LINES = ['Dodge the red blocks. Catch the gold coins.', 'Move with ← → or A D.  Pause with P.', ''];
-  const PAUSED_LINES = ['The blocks will wait for you.'];
-  const OVER_LINES = ['', ''];
-
-  /** Paint one frame: the field, then the HUD or a panel for the screen the game is on. */
-  function draw(state, screen, best) {
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.fillStyle = PALETTE.backdrop;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    drawField(state);
-    if (screen === SCREEN_TITLE) {
-      TITLE_LINES[2] = bestLabel(best);
-      drawPanel('Block Dodger', TITLE_LINES, 'Press Space or click to start');
-      return;
-    }
-    drawHud(state);
-    if (screen === SCREEN_PAUSED) drawPanel('Paused', PAUSED_LINES, 'Press P to resume');
-    else if (screen === SCREEN_OVER) {
-      OVER_LINES[0] = finalLabel(state.score);
-      OVER_LINES[1] = bestLabel(best);
-      drawPanel('Game over', OVER_LINES, 'Press Space or click to play again');
-    }
+  function resize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
   }
-
-  resize();
   window.addEventListener('resize', resize);
-  return { draw };
+
+  return { draw, resize };
 }
