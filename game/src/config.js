@@ -1,9 +1,9 @@
-// Every tuning number and colour in one place. Port Vela is a 240x240 m city grid;
-// the renderer scales to the window, so no rule below depends on the screen size.
+// Every tuning number and colour in one place. Port Vela is a 240 x 240 m grid
+// city; the renderer scales to the window, so no rule here depends on screen size.
 
 export const STEP = 1 / 60;
 
-/** City layout: a grid of blocks separated by roads. */
+/** City layout: blocks separated by roads on a 44 m pitch. */
 export const CITY = {
   half: 120, // city spans -120..120 m on both axes
   block: 32, // block size in m
@@ -11,22 +11,26 @@ export const CITY = {
   pitch: 44, // block + road
 };
 
+/** Road centre lines (x and z) and block centres, derived from the pitch. */
+export const ROADS = [-110, -66, -22, 22, 66, 110];
+export const BLOCKS = [-88, -44, 0, 44, 88];
+
 export const PLAYER = {
   radius: 0.6,
   height: 1.8,
   walkSpeed: 6,
-  runSpeed: 10,
+  runSpeed: 10.5,
   health: 100,
 };
 
 export const CAR = {
   length: 4.4,
   width: 2.0,
-  accel: 22,
-  brake: 34,
-  maxSpeed: 30,
+  accel: 24,
+  brake: 36,
+  maxSpeed: 31,
   maxReverse: 10,
-  turn: 2.1,
+  turn: 2.2,
   stealRadius: 4.5,
 };
 
@@ -35,7 +39,7 @@ export const TRAFFIC = { count: 10 };
 
 export const POLICE = {
   maxCars: 4,
-  chaseSpeed: 32,
+  chaseSpeed: 33,
   ramDamage: 8,
   bustRadius: 3.2,
   decaySeconds: 14,
@@ -124,19 +128,16 @@ export const PALETTE = {
   ground: 0x3a3f46,
   road: 0x23262b,
   sidewalk: 0x6d7278,
-  building: [0x8a7f70, 0x7d8a96, 0x9c8468, 0x6e7d6a, 0xa08b7a, 0x5f6b7a],
-  window: 0x2c3844,
+  buildings: [0x8a7f70, 0x7d8a96, 0x9c8468, 0x6e7d6a, 0xa08b7a, 0x5f6b7a],
+  windowDark: 0x2c3844,
   windowLit: 0xffd27a,
-  player: 0x2f9e44,
   playerShirt: 0x2b8a3e,
-  pedShirt: [0xc94f4f, 0x4f7ec9, 0xc9a44f, 0x8a4fc9, 0x4fc9a8],
-  car: [0xc0392b, 0x2980b9, 0xf1c40f, 0x7f8c8d, 0x8e44ad, 0x16a085, 0xe67e22, 0x2c3e50],
-  police: 0x1a1a2e,
-  policeLight: 0xff2222,
-  policeLight2: 0x2244ff,
+  pedShirts: [0xc94f4f, 0x4f7ec9, 0xc9a44f, 0x8a4fc9, 0x4fc9a8],
+  carPaint: [0xc0392b, 0x2980b9, 0xf1c40f, 0x7f8c8d, 0x8e44ad, 0x16a085, 0xe67e22, 0x2c3e50],
+  policePaint: 0x1a1a2e,
+  policeRed: 0xff2222,
+  policeBlue: 0x2244ff,
   marker: 0xffd23f,
-  hud: '#eef1f5',
-  muted: '#9aa3ad',
+  hudText: '#eef1f5',
+  hudMuted: '#9aa3ad',
 };
-
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';

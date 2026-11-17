@@ -1,5 +1,6 @@
 // Synthesised sound only (WebAudio, no audio files, no network): engine hum, siren,
-// gunshots, pickups and mission jingles. Created lazily on the first user gesture.
+// gunshots, pickups and mission jingles. The context is created lazily on the first
+// user gesture, so loading the page never makes a sound on its own.
 export function createAudio() {
   let ctx = null;
   let master = null;
@@ -25,18 +26,20 @@ export function createAudio() {
       master = ctx.createGain();
       master.gain.value = 0.35;
       master.connect(ctx.destination);
+
       engineOsc = ctx.createOscillator();
       engineOsc.type = 'sawtooth';
       engineOsc.frequency.value = 40;
-      engineGain = ctx.createGain();
-      engineGain.gain.value = 0;
       const engineFilter = ctx.createBiquadFilter();
       engineFilter.type = 'lowpass';
       engineFilter.frequency.value = 320;
+      engineGain = ctx.createGain();
+      engineGain.gain.value = 0;
       engineOsc.connect(engineFilter);
       engineFilter.connect(engineGain);
       engineGain.connect(master);
       engineOsc.start();
+
       sirenOsc = ctx.createOscillator();
       sirenOsc.type = 'sine';
       sirenOsc.frequency.value = 700;
@@ -68,7 +71,7 @@ export function createAudio() {
     } catch { /* audio is best-effort */ }
   }
 
-  function noise(dur, vol, freq) {
+  function noise(dur, vol, cutoff) {
     if (!ctx || muted) return;
     try {
       const len = Math.floor(ctx.sampleRate * dur);
@@ -79,7 +82,7 @@ export function createAudio() {
       src.buffer = buffer;
       const filter = ctx.createBiquadFilter();
       filter.type = 'lowpass';
-      filter.frequency.value = freq || 1800;
+      filter.frequency.value = cutoff || 1800;
       const gain = ctx.createGain();
       gain.gain.value = vol || 0.3;
       src.connect(filter);
@@ -97,11 +100,11 @@ export function createAudio() {
       muted = value;
       if (master) master.gain.value = value ? 0 : 0.35;
     },
-    /** Called every frame with speed 0..1 (driving) and wanted level. */
+    /** Called every frame with driving speed 0..1 and the wanted level. */
     update(dt, speedNorm, wanted) {
       if (!ctx || muted) return;
       if (engineGain) {
-        // smooth the engine hum toward its target so speed changes never click
+        // Smooth the engine hum toward its target so speed changes never click.
         const targetLevel = speedNorm > 0.02 ? 0.05 + speedNorm * 0.09 : 0;
         const targetFreq = 42 + speedNorm * 130;
         engineLevel += (targetLevel - engineLevel) * Math.min(1, dt * 8);
@@ -126,9 +129,6 @@ export function createAudio() {
     },
     click() {
       blip(880, 0.06, 'triangle', 0.14);
-    },
-    enemyShoot() {
-      noise(0.1, 0.22, 1800);
     },
     hit() {
       blip(160, 0.15, 'square', 0.18, 70);

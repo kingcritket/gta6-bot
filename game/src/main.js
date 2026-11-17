@@ -1,13 +1,23 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between five screens: title, play, paused, wasted and done (all missions finished).
+// Boot and the one loop: input is read every frame, the world advances in fixed
+// 1/60 s steps (several in a slow frame, none in a fast one), and the renderer
+// paints what is there. The game moves between five screens: title, play,
+// paused, wasted and done (all missions finished).
 //
-// ?seed=N fixes the city. ?shot=start|play|end (with &seed=N) stages that scene instead of
-// running the loop, renders it, and sets window.__shotReady for a screenshot.
+// ?seed=N fixes the city. ?shot=start|play|end (with &seed=N) stages that scene
+// instead of running the loop, renders it, and sets window.__shotReady.
 import { CAMERA, SAVE_KEY, STEP } from './config.js';
-import { createWorld, EVENT_ALL_DONE, EVENT_BUSTED, EVENT_CRASH, EVENT_HIT, EVENT_MISSION, EVENT_PICKUP, EVENT_SHOT, EVENT_STEAL, EVENT_WASTED } from './world.js';
-import { ACTION_CONFIRM, ACTION_INTERACT, ACTION_PAUSE, ACTION_RELOAD, ACTION_SHOOT, createInput } from './input.js';
-import { createRenderer, SCREEN_DONE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED } from './render.js';
+import {
+  EVENT_ALL_DONE, EVENT_BUSTED, EVENT_CRASH, EVENT_HIT, EVENT_MISSION,
+  EVENT_PICKUP, EVENT_SHOT, EVENT_STEAL, EVENT_WASTED, createWorld,
+} from './world.js';
+import {
+  ACTION_CONFIRM, ACTION_INTERACT, ACTION_PAUSE, ACTION_RELOAD, ACTION_SHOOT,
+  createInput,
+} from './input.js';
+import {
+  SCREEN_DONE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED,
+  createRenderer,
+} from './render.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
 import { stageShot } from './shots.js';
@@ -21,7 +31,7 @@ const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
 const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
 const canvas = document.getElementById('game');
-const status = document.getElementById('status');
+const statusEl = document.getElementById('status');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayLines = document.getElementById('overlay-lines');
@@ -97,6 +107,10 @@ function hideOverlay() {
   hudEl.style.display = 'block';
 }
 
+function announce(message) {
+  statusEl.textContent = message;
+}
+
 function runShot(name) {
   const scene = stageShot(name, world);
   camYaw = scene.camYaw;
@@ -111,7 +125,6 @@ function runShot(name) {
   if (scene.screen === SCREEN_TITLE) {
     showOverlay('PORT VELA', ['Kota ini milik siapa yang berani mengambilnya.', 'Lima misi. Satu nama: Rook.'], []);
     overlay.style.pointerEvents = 'none';
-    // let the city show through behind the title card
     overlay.style.background = 'rgba(8, 10, 14, 0.45)';
   } else {
     hideOverlay();
@@ -126,10 +139,6 @@ function runGame() {
   let last = performance.now();
   let saveTimer = 0;
   const save = readSave();
-
-  function announce(message) {
-    status.textContent = message;
-  }
 
   function startGame(fromSave) {
     world.reset();
@@ -190,6 +199,12 @@ function runGame() {
     announce('Semua misi selesai. Port Vela milikmu.');
   }
 
+  function pauseGame() {
+    screen = SCREEN_PAUSED;
+    showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
+    announce('Jeda.');
+  }
+
   function promptFor() {
     const p = world.state.player;
     if (p.inCar) return 'E — keluar dari mobil';
@@ -222,13 +237,10 @@ function runGame() {
 
   function handleActions() {
     const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_WASTED || screen === SCREEN_DONE)) {
-      // overlay buttons own the click; Space also starts from title
-      if (screen === SCREEN_TITLE) startGame(false);
+    if (actions & ACTION_CONFIRM && screen === SCREEN_TITLE) {
+      startGame(false);
     } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
-      announce('Jeda.');
+      pauseGame();
     } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
       screen = SCREEN_PLAY;
       hideOverlay();
@@ -253,9 +265,8 @@ function runGame() {
     const dt = Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = handleActions();
-    // camera yaw: mouse drag rotates it; otherwise it drifts behind the player's heading
+    // Camera yaw: mouse drag rotates it; otherwise it drifts behind the heading.
     const mouse = input.takeMouse();
-    // mouse wheel zooms the camera in and out
     const wheel = input.takeWheel();
     if (wheel !== 0) camDist = clamp(camDist * (1 + wheel * 0.0006), CAMERA.zoomMin, CAMERA.zoomMax);
     if (mouse.dx !== 0 || mouse.dy !== 0) {
@@ -295,11 +306,7 @@ function runGame() {
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
-      announce('Jeda.');
-    }
+    if (document.hidden && screen === SCREEN_PLAY) pauseGame();
   });
 
   showTitle();

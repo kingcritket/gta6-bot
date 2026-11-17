@@ -1,13 +1,12 @@
-// Keyboard and pointer input. Held keys are read every frame; one-shot presses (interact,
-// shoot, reload, pause, confirm) are queued as bit flags and taken once by the loop, so a
-// press between two frames is never lost and never counted twice.
+// Keyboard and pointer input. Held keys are read every frame; one-shot presses
+// (interact, shoot, reload, pause, confirm) are queued as bit flags and taken once
+// by the loop, so a press between two frames is never lost and never counted twice.
 
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_INTERACT = 4;
 export const ACTION_SHOOT = 8;
 export const ACTION_RELOAD = 16;
-export const ACTION_EXIT_CAR = 32;
 
 const FORWARD = new Set(['KeyW', 'ArrowUp']);
 const BACK = new Set(['KeyS', 'ArrowDown']);
@@ -38,7 +37,10 @@ export function createInput(canvas) {
     else if (INTERACT.has(event.code)) actions |= ACTION_INTERACT;
     else if (RELOAD.has(event.code)) actions |= ACTION_RELOAD;
     else if (SHOOT.has(event.code)) actions |= ACTION_SHOOT;
-    if (FORWARD.has(event.code) || BACK.has(event.code) || LEFT.has(event.code) || RIGHT.has(event.code) || CONFIRM.has(event.code) || event.code === 'Space') {
+    if (
+      FORWARD.has(event.code) || BACK.has(event.code) || LEFT.has(event.code) ||
+      RIGHT.has(event.code) || CONFIRM.has(event.code)
+    ) {
       event.preventDefault();
     }
   });
@@ -95,7 +97,7 @@ export function createInput(canvas) {
       mouseDY = 0;
       return out;
     },
-    /** Accumulated wheel delta since the last call, in pixels (positive = zoom out). */
+    /** Accumulated wheel delta since the last call (positive = zoom out). */
     takeWheel() {
       const out = wheelDelta;
       wheelDelta = 0;

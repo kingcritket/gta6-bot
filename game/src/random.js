@@ -1,4 +1,5 @@
-// Deterministic RNG (mulberry32) plus small helpers, so ?seed=N replays the same city.
+// Seeded RNG (mulberry32) and tiny math helpers. ?seed=N replays the same city,
+// so screenshots and playtests are deterministic.
 export function mulberry32(seed) {
   let a = seed >>> 0;
   return function next() {
@@ -19,14 +20,16 @@ export function range(rng, min, max) {
 }
 
 export function clamp(value, min, max) {
-  return value < min ? min : value > max ? max : value;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
 }
 
 export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-/** Shortest signed angle difference, in radians. */
+/** Shortest signed angle from a to b, in radians. */
 export function angleDiff(a, b) {
   let d = (b - a) % (Math.PI * 2);
   if (d > Math.PI) d -= Math.PI * 2;
@@ -38,4 +41,8 @@ export function dist2(ax, az, bx, bz) {
   const dx = ax - bx;
   const dz = az - bz;
   return dx * dx + dz * dz;
+}
+
+export function distance(ax, az, bx, bz) {
+  return Math.sqrt(dist2(ax, az, bx, bz));
 }

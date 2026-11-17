@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
+<meta name="description" content="Port Vela — open-world crime game: steal cars, dodge the police, finish five missions.">
 <title>Port Vela — Open-World Crime</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -23,6 +24,7 @@
   #health-fill { height: 100%; width: 100%; background: #2f9e44; transition: width 0.2s; }
   #health-fill.low { background: #e5534b; }
   #health-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 14px; }
+  #controls { font-size: 12px; color: #9aa3ad; margin-top: 6px; }
   #ammo { font-size: 16px; font-weight: 600; }
   #hud-br { position: absolute; bottom: 14px; right: 14px; }
   #minimap { width: 180px; height: 180px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.25); background: #20242a; }
@@ -53,6 +55,7 @@
   <div id="hud-bl" class="panel">
     <div id="health-bar"><div id="health-fill"></div></div>
     <div id="health-row"><span>❤ <span id="health-text">100</span></span><span id="ammo">12 / ∞</span></div>
+    <div id="controls">WASD jalan / setir · E curi mobil · F tembak · R reload · Shift lari · P jeda</div>
   </div>
   <div id="hud-br"><canvas id="minimap" width="180" height="180"></canvas></div>
   <div id="prompt"></div>

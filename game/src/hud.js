@@ -1,9 +1,11 @@
-// DOM HUD: cash, mission, wanted stars, health, ammo, prompts, message toast, and the
-// 2D minimap. Pure DOM/canvas — no three.js in here.
-import { MISSIONS } from './config.js';
+// DOM HUD: cash, mission, wanted stars, health, ammo, prompts, message toast and
+// the 2D minimap. Pure DOM/canvas — no three.js in here. Values are only written
+// when they change, so the HUD never churns the DOM every frame.
+import { MISSIONS, ROADS } from './config.js';
 
 const MAP_SIZE = 180;
-const SCALE = MAP_SIZE / 260; // city spans -130..130 on the minimap
+const MAP_HALF = 130; // city spans -130..130 on the minimap
+const MAP_SCALE = MAP_SIZE / (MAP_HALF * 2);
 
 export function createHud(elements) {
   const { cashEl, missionEl, objectiveEl, starsEl, healthFill, healthText, ammoEl, promptEl, messageEl, minimap } = elements;
@@ -12,31 +14,32 @@ export function createHud(elements) {
   let lastMission = -1;
   let lastStars = -1;
   let lastHealth = -1;
-  let lastAmmo = -1;
+  let lastAmmo = null;
   let lastPrompt = null;
   let lastMessage = null;
+
+  const toMap = (x, z) => [(x + MAP_HALF) * MAP_SCALE, (z + MAP_HALF) * MAP_SCALE];
 
   function drawMinimap(state) {
     const ctx = mapCtx;
     ctx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
     ctx.fillStyle = '#20242a';
     ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
-    const toMap = (x, z) => [(x + 130) * SCALE, (z + 130) * SCALE];
-    // roads
+    // Roads.
     ctx.fillStyle = '#3a3f46';
-    for (const c of [-110, -66, -22, 22, 66, 110]) {
+    for (const c of ROADS) {
       const [x] = toMap(c, 0);
       ctx.fillRect(x - 4.5, 0, 9, MAP_SIZE);
       const [, z] = toMap(0, c);
       ctx.fillRect(0, z - 4.5, MAP_SIZE, 9);
     }
-    // plaza
+    // Plaza fountain.
     const [px, pz] = toMap(0, 0);
     ctx.fillStyle = '#7fb3d5';
     ctx.beginPath();
     ctx.arc(px, pz, 6, 0, Math.PI * 2);
     ctx.fill();
-    // marker
+    // Mission marker, pulsing.
     if (state.marker.active) {
       const [mx, mz] = toMap(state.marker.x, state.marker.z);
       ctx.fillStyle = '#ffd23f';
@@ -48,14 +51,13 @@ export function createHud(elements) {
       ctx.arc(mx, mz, 8 + Math.sin(performance.now() / 300) * 2, 0, Math.PI * 2);
       ctx.stroke();
     }
-    // enemies
+    // Enemies in red, police in blue, traffic in grey.
     ctx.fillStyle = '#ff4b33';
     for (const e of state.enemies) {
       if (!e.alive) continue;
       const [ex, ez] = toMap(e.x, e.z);
       ctx.fillRect(ex - 2, ez - 2, 4, 4);
     }
-    // police
     ctx.fillStyle = '#4f8cff';
     for (const cop of state.police) {
       const [cx, cz] = toMap(cop.x, cop.z);
@@ -63,14 +65,13 @@ export function createHud(elements) {
       ctx.arc(cx, cz, 3, 0, Math.PI * 2);
       ctx.fill();
     }
-    // traffic
     ctx.fillStyle = '#cfd6dd';
     for (const car of state.cars) {
       if (!car.active) continue;
       const [cx, cz] = toMap(car.x, car.z);
       ctx.fillRect(cx - 1.5, cz - 1.5, 3, 3);
     }
-    // player arrow
+    // Player arrow, rotated to the heading.
     const p = state.player;
     const [ux, uz] = toMap(p.x, p.z);
     ctx.save();
@@ -115,9 +116,10 @@ export function createHud(elements) {
       healthFill.classList.toggle('low', health <= 30);
     }
     const ammo = state.player.inCar ? '—' : `${state.player.ammo} / ∞`;
-    if (ammo !== lastAmmo) {
-      lastAmmo = ammo;
-      ammoEl.textContent = state.player.reload > 0 ? 'Reloading…' : ammo;
+    const ammoText = state.player.reload > 0 ? 'Reloading…' : ammo;
+    if (ammoText !== lastAmmo) {
+      lastAmmo = ammoText;
+      ammoEl.textContent = ammoText;
     }
     if (prompt !== lastPrompt) {
       lastPrompt = prompt;

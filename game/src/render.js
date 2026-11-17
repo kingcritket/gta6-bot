@@ -1,8 +1,8 @@
-// Drawing only: the three.js scene for Port Vela — city, cars, people, marker — plus the
-// third-person camera. No rules in here; it paints whatever the world state holds.
+// Drawing only: the three.js scene for Port Vela — city, cars, people, marker —
+// plus the third-person camera. No rules in here; it paints whatever the world
+// state holds.
 import * as THREE from 'three';
-import { CAMERA, CITY, PALETTE } from './config.js';
-import { ROAD_CENTERS } from './world.js';
+import { CAMERA, CITY, PALETTE, ROADS } from './config.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -10,6 +10,7 @@ export const SCREEN_PAUSED = 'paused';
 export const SCREEN_WASTED = 'wasted';
 export const SCREEN_DONE = 'done';
 
+/** A small canvas texture of lit/unlit windows, shared by every building. */
 function windowTexture(seed) {
   const canvas = document.createElement('canvas');
   canvas.width = 128;
@@ -24,8 +25,7 @@ function windowTexture(seed) {
   };
   for (let row = 0; row < 10; row += 1) {
     for (let col = 0; col < 5; col += 1) {
-      const lit = rnd() < 0.35;
-      ctx.fillStyle = lit ? '#ffd27a' : '#2c3844';
+      ctx.fillStyle = rnd() < 0.35 ? '#ffd27a' : '#2c3844';
       ctx.fillRect(8 + col * 24, 10 + row * 24, 14, 15);
     }
   }
@@ -34,7 +34,7 @@ function windowTexture(seed) {
   return tex;
 }
 
-function makeCarMesh(color, police) {
+function buildCarMesh(color, police) {
   const group = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.4 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, 4.4), bodyMat);
@@ -61,15 +61,16 @@ function makeCarMesh(color, police) {
     );
     bar.position.set(0, 1.55, -0.2);
     group.add(bar);
+    const lampGeo = new THREE.BoxGeometry(0.6, 0.2, 0.52);
     const lightL = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.2, 0.52),
-      new THREE.MeshStandardMaterial({ color: PALETTE.policeLight, emissive: PALETTE.policeLight, emissiveIntensity: 1 }),
+      lampGeo,
+      new THREE.MeshStandardMaterial({ color: PALETTE.policeRed, emissive: PALETTE.policeRed, emissiveIntensity: 1 }),
     );
     lightL.position.set(-0.35, 1.56, -0.2);
     group.add(lightL);
     const lightR = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.2, 0.52),
-      new THREE.MeshStandardMaterial({ color: PALETTE.policeLight2, emissive: PALETTE.policeLight2, emissiveIntensity: 1 }),
+      lampGeo,
+      new THREE.MeshStandardMaterial({ color: PALETTE.policeBlue, emissive: PALETTE.policeBlue, emissiveIntensity: 1 }),
     );
     lightR.position.set(0.35, 1.56, -0.2);
     group.add(lightR);
@@ -78,14 +79,14 @@ function makeCarMesh(color, police) {
   return group;
 }
 
-function makePersonMesh(shirtColor) {
+function buildPersonMesh(shirtColor) {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(
+  const torso = new THREE.Mesh(
     new THREE.CylinderGeometry(0.32, 0.38, 1.0, 10),
     new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.8 }),
   );
-  body.position.y = 0.9;
-  group.add(body);
+  torso.position.y = 0.9;
+  group.add(torso);
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.26, 12, 10),
     new THREE.MeshStandardMaterial({ color: 0xe8b98a, roughness: 0.7 }),
@@ -126,8 +127,9 @@ export function createRenderer(canvas) {
   sun.shadow.camera.bottom = -140;
   sun.shadow.camera.far = 400;
   scene.add(sun);
+  scene.add(sun.target);
 
-  // ground
+  // Ground plane.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(CITY.half * 2 + 40, CITY.half * 2 + 40),
     new THREE.MeshStandardMaterial({ color: PALETTE.ground, roughness: 1 }),
@@ -136,10 +138,10 @@ export function createRenderer(canvas) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // roads (dark strips) + centre dashes
+  // Roads (dark strips) with centre dashes, in both directions.
   const roadMat = new THREE.MeshStandardMaterial({ color: PALETTE.road, roughness: 1 });
   const dashMat = new THREE.MeshStandardMaterial({ color: 0xd8c95a, roughness: 0.8 });
-  for (const c of ROAD_CENTERS) {
+  for (const c of ROADS) {
     for (const horizontal of [true, false]) {
       const strip = new THREE.Mesh(new THREE.PlaneGeometry(CITY.half * 2, 12), roadMat);
       strip.rotation.x = -Math.PI / 2;
@@ -157,7 +159,7 @@ export function createRenderer(canvas) {
     }
   }
 
-  // sidewalks: lighter squares on each block
+  // Sidewalks: lighter squares on each block.
   const walkMat = new THREE.MeshStandardMaterial({ color: PALETTE.sidewalk, roughness: 1 });
   for (let bx = -88; bx <= 88; bx += 44) {
     for (let bz = -88; bz <= 88; bz += 44) {
@@ -169,26 +171,21 @@ export function createRenderer(canvas) {
     }
   }
 
-  // plaza: open square with a fountain at the centre
-  const plaza = new THREE.Mesh(
+  // Plaza Vela: open square with a fountain at the centre.
+  const basin = new THREE.Mesh(
     new THREE.CylinderGeometry(6, 6, 0.5, 24),
     new THREE.MeshStandardMaterial({ color: 0x7fb3d5, roughness: 0.3 }),
   );
-  plaza.position.set(0, 0.25, 0);
-  scene.add(plaza);
-  const fountainJet = new THREE.Mesh(
+  basin.position.set(0, 0.25, 0);
+  scene.add(basin);
+  const jet = new THREE.Mesh(
     new THREE.ConeGeometry(1.2, 2.4, 12),
     new THREE.MeshStandardMaterial({ color: 0xaee2ff, roughness: 0.2, transparent: true, opacity: 0.7 }),
   );
-  fountainJet.position.set(0, 1.6, 0);
-  scene.add(fountainJet);
+  jet.position.set(0, 1.6, 0);
+  scene.add(jet);
 
-  const buildingTextures = [windowTexture(11), windowTexture(47), windowTexture(123)];
-  const buildingMeshes = [];
-  const treeMeshes = [];
-  const lampMeshes = [];
-
-  // mission marker: a beam of light + a ring on the ground
+  // Mission marker: a beam of light plus a ring on the ground.
   const markerBeam = new THREE.Mesh(
     new THREE.CylinderGeometry(1.1, 1.6, 30, 16, 1, true),
     new THREE.MeshBasicMaterial({ color: PALETTE.marker, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
@@ -203,17 +200,17 @@ export function createRenderer(canvas) {
   markerRing.position.y = 0.06;
   scene.add(markerRing);
 
-  // pooled meshes, keyed by the simulated object
+  const windowTextures = [windowTexture(11), windowTexture(47), windowTexture(123)];
+  const staticMeshes = [];
   const carMeshes = new Map();
   const pedMeshes = new Map();
   const enemyMeshes = new Map();
-  const policeMeshes = new Map();
   let playerMesh = null;
 
   function syncCar(car) {
     let mesh = carMeshes.get(car);
     if (!mesh) {
-      mesh = makeCarMesh(car.color, car.police);
+      mesh = buildCarMesh(car.color, car.police);
       mesh.traverse((o) => {
         if (o.isMesh) o.castShadow = true;
       });
@@ -233,7 +230,7 @@ export function createRenderer(canvas) {
   function syncPerson(map, obj, shirtColor) {
     let mesh = map.get(obj);
     if (!mesh) {
-      mesh = makePersonMesh(shirtColor);
+      mesh = buildPersonMesh(shirtColor);
       mesh.traverse((o) => {
         if (o.isMesh) o.castShadow = true;
       });
@@ -242,13 +239,13 @@ export function createRenderer(canvas) {
     }
     mesh.position.set(obj.x, 0, obj.z);
     mesh.rotation.y = obj.heading;
-    mesh.visible = !obj.down && obj.alive !== false;
-    // a downed ped lies on the ground
     if (obj.down) {
+      // A downed ped lies flat on the ground.
       mesh.visible = true;
       mesh.rotation.x = Math.PI / 2;
       mesh.position.y = 0.3;
     } else {
+      mesh.visible = obj.alive !== false;
       mesh.rotation.x = 0;
       mesh.position.y = 0;
     }
@@ -256,25 +253,24 @@ export function createRenderer(canvas) {
   }
 
   function buildStatic(state) {
-    for (const mesh of buildingMeshes) scene.remove(mesh);
-    buildingMeshes.length = 0;
+    for (const mesh of staticMeshes) scene.remove(mesh);
+    staticMeshes.length = 0;
     for (const b of state.buildings) {
-      const tex = buildingTextures[b.seed % buildingTextures.length];
+      const tex = windowTextures[Math.abs(b.texSeed) % windowTextures.length];
       const mat = new THREE.MeshStandardMaterial({ color: b.color, map: tex, roughness: 0.9 });
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), mat);
       mesh.position.set(b.x, b.h / 2, b.z);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       scene.add(mesh);
-      buildingMeshes.push(mesh);
-      // flat roof cap
+      staticMeshes.push(mesh);
       const roof = new THREE.Mesh(
         new THREE.BoxGeometry(b.w + 0.6, 0.4, b.d + 0.6),
         new THREE.MeshStandardMaterial({ color: 0x3c4148, roughness: 1 }),
       );
       roof.position.set(b.x, b.h + 0.2, b.z);
       scene.add(roof);
-      buildingMeshes.push(roof);
+      staticMeshes.push(roof);
     }
     for (const t of state.trees) {
       const trunk = new THREE.Mesh(
@@ -284,7 +280,7 @@ export function createRenderer(canvas) {
       trunk.position.set(t.x, 0.8, t.z);
       trunk.castShadow = true;
       scene.add(trunk);
-      treeMeshes.push(trunk);
+      staticMeshes.push(trunk);
       const top = new THREE.Mesh(
         new THREE.ConeGeometry(1.5, 3.2, 8),
         new THREE.MeshStandardMaterial({ color: 0x2f7d3a, roughness: 1 }),
@@ -292,7 +288,7 @@ export function createRenderer(canvas) {
       top.position.set(t.x, 3.0, t.z);
       top.castShadow = true;
       scene.add(top);
-      treeMeshes.push(top);
+      staticMeshes.push(top);
     }
     for (const l of state.lamps) {
       const pole = new THREE.Mesh(
@@ -301,22 +297,22 @@ export function createRenderer(canvas) {
       );
       pole.position.set(l.x, 2.7, l.z);
       scene.add(pole);
-      lampMeshes.push(pole);
+      staticMeshes.push(pole);
       const bulb = new THREE.Mesh(
         new THREE.SphereGeometry(0.28, 10, 8),
         new THREE.MeshStandardMaterial({ color: 0xffe9a8, emissive: 0xffd27a, emissiveIntensity: 0.9 }),
       );
       bulb.position.set(l.x, 5.5, l.z);
       scene.add(bulb);
-      lampMeshes.push(bulb);
+      staticMeshes.push(bulb);
     }
   }
 
   function draw(state, camYaw, screen, camDist) {
-    if (buildingMeshes.length === 0) buildStatic(state);
+    if (staticMeshes.length === 0) buildStatic(state);
     const p = state.player;
     if (!playerMesh) {
-      playerMesh = makePersonMesh(PALETTE.playerShirt);
+      playerMesh = buildPersonMesh(PALETTE.playerShirt);
       playerMesh.traverse((o) => {
         if (o.isMesh) o.castShadow = true;
       });
@@ -332,7 +328,6 @@ export function createRenderer(canvas) {
     for (const ped of state.peds) syncPerson(pedMeshes, ped, ped.color);
     for (const e of state.enemies) syncPerson(enemyMeshes, e, e.color);
 
-    // marker
     markerBeam.visible = state.marker.active;
     markerRing.visible = state.marker.active;
     if (state.marker.active) {
@@ -345,7 +340,7 @@ export function createRenderer(canvas) {
       markerBeam.material.opacity = 0.22 + Math.sin(performance.now() / 280) * 0.08;
     }
 
-    // third-person camera (distance scaled by the mouse-wheel zoom)
+    // Third-person camera (distance scaled by the mouse-wheel zoom).
     const zoom = camDist ?? 1;
     const dist = (p.inCar ? CAMERA.carDist : CAMERA.footDist) * zoom;
     const height = (p.inCar ? CAMERA.carHeight : CAMERA.footHeight) * zoom;
