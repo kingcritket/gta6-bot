@@ -1,85 +1,82 @@
-// Keyboard + mouse for Port Vela. Edge-triggered actions are consumed when read,
-// so holding a key never double-fires an interaction.
-export const ACT = {
-  INTERACT: 1,
-  SHOOT: 2,
-  RELOAD: 4,
-  PAUSE: 8,
-  CONFIRM: 16,
-};
+// Port Vela — keyboard and mouse input. The sim only ever sees the small
+// shape this returns: a move vector plus an action bitmask.
+import { ACTION } from './config.js';
+
+export { ACTION };
+export const ACTION_CONFIRM = ACTION.CONFIRM;
+export const ACTION_INTERACT = ACTION.INTERACT;
+export const ACTION_PAUSE = ACTION.PAUSE;
+export const ACTION_RELOAD = ACTION.RELOAD;
+export const ACTION_SHOOT = ACTION.SHOOT;
 
 export function createInput(canvas) {
-  const down = new Set();
-  const queued = new Set();
-  let dragX = 0;
-  let dragY = 0;
+  const keys = new Set();
+  const pressed = new Set();
+  let mouseDx = 0;
+  let mouseDy = 0;
   let wheel = 0;
-  let clicked = false;
   let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
 
-  function onKey(e) {
-    if (e.type === 'keydown') {
-      if (!e.repeat) queued.add(e.code);
-      down.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
-        e.preventDefault();
-      }
-    } else {
-      down.delete(e.code);
-    }
+  function codeOf(e) {
+    return e.code;
   }
 
-  window.addEventListener('keydown', onKey);
-  window.addEventListener('keyup', onKey);
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+    if (!e.repeat) pressed.add(e.code);
+    keys.add(e.code);
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
+
   canvas.addEventListener('mousedown', (e) => {
     dragging = true;
-    clicked = true;
-    e.preventDefault();
+    lastX = e.clientX;
+    lastY = e.clientY;
+    pressed.add('MouseShoot');
   });
-  window.addEventListener('mouseup', () => {
-    dragging = false;
-  });
+  window.addEventListener('mouseup', () => { dragging = false; });
   window.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    dragX += e.movementX || 0;
-    dragY += e.movementY || 0;
+    mouseDx += e.clientX - lastX;
+    mouseDy += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
   });
   canvas.addEventListener('wheel', (e) => {
-    wheel += e.deltaY;
     e.preventDefault();
+    wheel += e.deltaY;
   }, { passive: false });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   function held(...codes) {
-    return codes.some((c) => down.has(c));
+    return codes.some((c) => keys.has(c));
   }
 
   return {
-    // -1..1 strafe (x) and forward (z) from WASD / arrows.
-    axis() {
-      const x = (held('KeyD', 'ArrowRight') ? 1 : 0) - (held('KeyA', 'ArrowLeft') ? 1 : 0);
-      const z = (held('KeyW', 'ArrowUp') ? 1 : 0) - (held('KeyS', 'ArrowDown') ? 1 : 0);
-      return { x, z };
-    },
-    runHeld() {
-      return held('ShiftLeft', 'ShiftRight');
+    // { f: forward -1..1, s: strafe -1..1, run, camYaw } — camYaw filled in by main.
+    move() {
+      const f = (held('KeyW', 'ArrowUp') ? 1 : 0) - (held('KeyS', 'ArrowDown') ? 1 : 0);
+      const s = (held('KeyD', 'ArrowRight') ? 1 : 0) - (held('KeyA', 'ArrowLeft') ? 1 : 0);
+      return { f, s, run: held('ShiftLeft', 'ShiftRight') };
     },
     takeActions() {
-      let bits = 0;
-      if (queued.has('KeyE')) bits |= ACT.INTERACT;
-      if (queued.has('KeyF') || clicked) bits |= ACT.SHOOT;
-      if (queued.has('KeyR')) bits |= ACT.RELOAD;
-      if (queued.has('KeyP') || queued.has('Escape')) bits |= ACT.PAUSE;
-      if (queued.has('Space') || queued.has('Enter')) bits |= ACT.CONFIRM;
-      queued.clear();
-      clicked = false;
-      return bits;
+      let a = 0;
+      if (pressed.has('Space') || pressed.has('Enter')) a |= ACTION.CONFIRM;
+      if (pressed.has('KeyE')) a |= ACTION.INTERACT;
+      if (pressed.has('KeyP') || pressed.has('Escape')) a |= ACTION.PAUSE;
+      if (pressed.has('KeyR')) a |= ACTION.RELOAD;
+      if (pressed.has('KeyF') || pressed.has('MouseShoot')) a |= ACTION.SHOOT;
+      pressed.clear();
+      return a;
     },
-    takeDrag() {
-      const d = { dx: dragX, dy: dragY };
-      dragX = 0;
-      dragY = 0;
-      return d;
+    takeMouse() {
+      const m = { dx: mouseDx, dy: mouseDy };
+      mouseDx = 0;
+      mouseDy = 0;
+      return m;
     },
     takeWheel() {
       const w = wheel;

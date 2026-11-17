@@ -1,45 +1,42 @@
+# Port Vela
+
 [![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![rank](https://make.fun/badge/gta6-01/kingcritket/gta6-bot/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/kingcritket/gta6-bot/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-# Port Vela
+**Port Vela** is an open-world crime game in the spirit of GTA 6, built by an AI agent for make.fun's "Make GTA 6" bounty ($1,666 in USDC). You are Rook, a newcomer with debts and ambition in a port city that never sleeps. Steal cars, outrun the police, and finish five missions with Mara to take the city.
 
-Game crime open-world (three.js) untuk bounty make.fun **"Make GTA 6"** (gta6-01): kota pelabuhan Port Vela yang bisa dijelajahi dengan jalan kaki dan mobil, lengkap dengan traffic, pejalan kaki, sistem wanted + polisi, combat, 5 misi cerita, HUD + minimap, save, dan suara sintetis — semuanya berjalan offline dari file statis, tanpa network request.
-
-## Main
+## Play
 
 ```sh
 node serve.ts
+# open http://localhost:8080
 ```
 
-Lalu buka http://localhost:8080 di desktop browser.
+## What's inside
 
-## Kontrol
+- A 240×240 m procedural city: streets, buildings with lit windows, Plaza Vela with a fountain, palms, street lamps and the docks
+- On foot (WASD, Shift to run) and by car — steal any car with **E**
+- Traffic (10 cars) and pedestrians (26) who flee gunfire and speeding cars
+- Wanted level 0–5 with police AI that chases, rams and busts you
+- Pistol combat (**F** / click to shoot, **R** to reload) against the Kobra gang
+- 5 story missions: steal a car, deliver a package, evade a 2-star wanted level, take back the plaza, and one last bank score — $9,400 in total
+- HUD with cash, mission tracker, wanted stars, health, ammo and a live 2D minimap
+- Start / pause / WASTED / done screens, localStorage save with continue, synthesized WebAudio sound (engine, sirens, gunfire, mission jingles)
+- Third-person camera with mouse drag and wheel zoom; `?seed=N` rebuilds the same city
 
-- **WASD** bergerak / menyetir · **Shift** lari
-- **E** curi mobil & keluar dari mobil
-- **F** / klik menembak · **R** isi ulang
-- **P** jeda · drag mouse memutar kamera · roda mouse zoom
+## Controls
 
-## Cerita
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Move / drive |
+| Shift | Run |
+| E | Steal / exit car |
+| F / click | Shoot |
+| R | Reload |
+| P | Pause |
+| Mouse drag / wheel | Camera / zoom |
 
-Kau Rook, pendatang baru dengan utang dan ambisi. Mara, mekanik bengkel pelabuhan, memberimu lima pekerjaan: curi mobil pertama, antar paket ke dermaga, kabur dari kejaran polisi, rebut Plaza Vela dari geng Kobra, dan satu skor terakhir di Bank Vela. Selesaikan kelimanya dan Port Vela jadi milikmu.
+Built with three.js (vendored under `game/vendor/`). No network requests at runtime — everything is static files under `game/`.
 
-## Misi
-
-1. **Roda Pertama** — curi mobil, antar ke Bengkel Mara ($500)
-2. **Paket Dermaga** — ambil paket, antar ke titik antar ($900)
-3. **Panas di Strip** — kabur sampai wanted padam ($1.200)
-4. **Perebutan Plaza** — kalahkan 4 anggota geng Kobra ($1.800)
-5. **Skor Terakhir** — rampok Bank Vela, kabur dari polisi ($5.000)
-
-## Struktur
-
-- `game/index.html` — halaman game + HUD
-- `game/src/` — sumber game: `main.js` (loop), `world.js` (simulasi), `city.js` (tata kota), `render.js` (three.js), `missions.js` (5 misi), `hud.js` (HUD + minimap), `input.js`, `audio.js` (suara sintetis), `shots.js` (staging screenshot), `rng.js`
-- `game/vendor/three/three.module.min.js` — three.js r160 (vendored)
-- `screenshots/` — 3 render asli game (`?shot=start|play|end&seed=1`)
-- `main.ts` — program entry (Node 22): menyalin game + screenshot ke output dan menulis `dossier.json`
-- `serve.ts` — server statis lokal untuk `game/`
-
-Lisensi: MIT. Referral: `97vd661v`.
+Referral code: `97vd661v`

@@ -1,18 +1,19 @@
-// Port Vela boot + the one game loop. Input is read every frame, the world moves in
-// fixed 1/60 s steps, and the renderer paints what is there. Five screens: title,
-// play, paused, wasted and done. ?shot=start|play|end (with &seed=N) stages one
+// Port Vela — boot and the one loop. Input is read every frame, the world
+// advances in fixed 1/60 s steps, and the renderer paints what is there. The
+// game moves between five screens: title, play, paused, wasted and done.
+//
+// ?seed=N fixes the city. ?shot=start|play|end (with &seed=N) stages that
 // scene instead of running the loop, renders it, and sets window.__shotReady.
-import { createWorld, resetWorld, stepWorld, setMission, EV_BUSTED, EV_CRASH, EV_HIT, EV_MISSION, EV_SHOT, EV_STEAL, EV_WASTED, EV_DONE } from './world.js';
-import { ACT, createInput } from './input.js';
+import { ACTION, CAMERA, EV, SAVE_KEY, STEP } from './config.js';
+import { createWorld } from './world.js';
+import { createInput } from './input.js';
 import { createRenderer, SCREEN_DONE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED } from './render.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
 import { stageShot } from './shots.js';
-import { angleDiff, clamp, dist2 } from './rng.js';
+import { angleDiff, clamp, dist2 } from './util.js';
 
-const STEP = 1 / 60;
 const MAX_FRAME = 0.25;
-const SAVE_KEY = 'port-vela-save-v1';
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -28,21 +29,18 @@ const overlayButtons = document.getElementById('overlay-buttons');
 const hudEl = document.getElementById('hud');
 
 const world = createWorld(seed);
-const renderer = createRenderer(canvas, world.city);
+const renderer = createRenderer(canvas);
 const audio = createAudio();
-
-// HUD element ids in the markup are cash/mission/objective/stars/health-fill/
-// health-text/ammo-count/prompt/message/minimap.
-const hudBound = createHud({
-  cash: document.getElementById('cash'),
-  mission: document.getElementById('mission'),
-  objective: document.getElementById('objective'),
-  stars: document.getElementById('stars'),
+const hud = createHud({
+  cashEl: document.getElementById('cash'),
+  missionEl: document.getElementById('mission'),
+  objectiveEl: document.getElementById('objective'),
+  starsEl: document.getElementById('stars'),
   healthFill: document.getElementById('health-fill'),
   healthText: document.getElementById('health-text'),
-  ammoCount: document.getElementById('ammo-count'),
-  prompt: document.getElementById('prompt'),
-  message: document.getElementById('message'),
+  ammoEl: document.getElementById('ammo'),
+  promptEl: document.getElementById('prompt'),
+  messageEl: document.getElementById('message'),
   minimap: document.getElementById('minimap'),
 });
 
@@ -61,14 +59,14 @@ function readSave() {
 function writeSave() {
   try {
     window.localStorage.setItem(SAVE_KEY, JSON.stringify({
-      missionIndex: world.missionIndex,
-      cash: world.cash,
+      missionIndex: world.state.missionIndex,
+      cash: world.state.cash,
     }));
   } catch { /* storage can be off: progress then lasts this visit only */ }
 }
 
 let camYaw = Math.PI / 2;
-let camDist = 10;
+let camDist = 1;
 let lastDragAt = -10;
 
 function showOverlay(title, lines, buttons) {
@@ -104,8 +102,8 @@ function runShot(name) {
   camYaw = scene.camYaw;
   let painted = 0;
   function paint() {
-    renderer.draw(world, camYaw, scene.screen, camDist, performance.now() / 1000);
-    hudBound.update(world, '');
+    renderer.draw(world.state, camYaw, scene.screen, scene.camDist || 1, world.state.time + painted * 0.05);
+    hud.update(world.state, '');
     painted += 1;
     if (painted < 3) requestAnimationFrame(paint);
     else window.__shotReady = true;
@@ -133,10 +131,14 @@ function runGame() {
   }
 
   function startGame(fromSave) {
-    resetWorld(world);
+    world.reset();
     if (fromSave && save) {
-      world.cash = save.cash;
-      setMission(world, Math.min(save.missionIndex, 5));
+      world.state.cash = save.cash;
+      world.setMission(Math.min(save.missionIndex, 4));
+      if (save.missionIndex >= 5) {
+        world.state.allDone = true;
+        world.state.marker.active = false;
+      }
     }
     camYaw = Math.PI / 2;
     accumulator = 0;
@@ -166,9 +168,9 @@ function runGame() {
     writeSave();
     audio.wasted();
     showOverlay(reason, [
-      `Misi ${world.missionIndex + 1}/5 — uang $${world.cash.toLocaleString('en-US')} tetap tersimpan.`,
+      `Misi ${world.state.missionIndex + 1}/5 — uang $${world.state.cash.toLocaleString('en-US')} tetap tersimpan.`,
       'Rook bangun lagi di bengkel Mara. Kota ini belum selesai denganmu.',
-    ], [{ label: 'Bangun Lagi', onClick: () => startGame(true) }]);
+    ], [{ label: 'Bangun Lagi', onClick: () => { world.respawn(); screen = SCREEN_PLAY; hideOverlay(); } }]);
     announce(`${reason}. Bangun lagi.`);
   }
 
@@ -177,7 +179,7 @@ function runGame() {
     writeSave();
     audio.mission();
     showOverlay('PORT VELA MILIKMU', [
-      `Semua 5 misi selesai. Total uang: $${world.cash.toLocaleString('en-US')}.`,
+      `Semua 5 misi selesai. Total uang: $${world.state.cash.toLocaleString('en-US')}.`,
       'Rook dan Mara meninggalkan Port Vela saat fajar — legenda baru kota ini.',
       'Jelajahi kota dengan bebas, atau mulai dari awal.',
     ], [
@@ -188,43 +190,44 @@ function runGame() {
   }
 
   function promptFor() {
-    const p = world.player;
+    const p = world.state.player;
     if (p.inCar) return 'E — keluar dari mobil';
     let best = Infinity;
-    for (const car of world.cars) {
+    for (const car of world.state.cars) {
       if (!car.active || car.kind === 'police') continue;
       best = Math.min(best, dist2(p.x, p.z, car.x, car.z));
     }
-    if (best < 4.5 * 4.5) return 'E — curi mobil';
-    if (world.missionIndex === 3 && world.enemies.some((e) => e.alive)) {
+    if (best < 3.4 * 3.4) return 'E — curi mobil';
+    if (world.state.missionIndex === 3 && world.state.enemies.some((e) => e.alive)) {
       return 'F / klik — tembak anggota geng Kobra';
     }
     return '';
   }
 
   function handleEvents(events) {
-    if (events & EV_SHOT) audio.shoot();
-    if (events & EV_HIT) audio.hit();
-    if (events & EV_CRASH) audio.crash();
-    if (events & EV_STEAL) audio.steal();
-    if (events & EV_MISSION) {
+    if (events & EV.SHOT) audio.shoot();
+    if (events & EV.HIT) audio.hit();
+    if (events & EV.CRASH) audio.crash();
+    if (events & EV.PICKUP) audio.pickup();
+    if (events & EV.STEAL) audio.steal();
+    if (events & EV.MISSION) {
       audio.mission();
       writeSave();
     }
-    if (events & EV_WASTED) showWasted('WASTED');
-    else if (events & EV_BUSTED) showWasted('DITANGKAP');
-    else if (events & EV_DONE) showDone();
+    if (events & EV.WASTED) showWasted('WASTED');
+    else if (events & EV.BUSTED) showWasted('DITANGKAP');
+    else if (events & EV.DONE) showDone();
   }
 
   function handleActions() {
     const actions = input.takeActions();
-    if (actions & ACT.CONFIRM && screen === SCREEN_TITLE) {
-      startGame(false);
-    } else if (actions & ACT.PAUSE && screen === SCREEN_PLAY) {
+    if (actions & ACTION.CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_WASTED || screen === SCREEN_DONE)) {
+      if (screen === SCREEN_TITLE) startGame(false);
+    } else if (actions & ACTION.PAUSE && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
       showOverlay('Jeda', ['Kota menunggu. Rook tidak.'], [{ label: 'Lanjutkan', onClick: () => { screen = SCREEN_PLAY; hideOverlay(); } }]);
       announce('Jeda.');
-    } else if (actions & (ACT.PAUSE | ACT.CONFIRM) && screen === SCREEN_PAUSED) {
+    } else if (actions & (ACTION.PAUSE | ACTION.CONFIRM) && screen === SCREEN_PAUSED) {
       screen = SCREEN_PLAY;
       hideOverlay();
       announce('Bermain.');
@@ -234,16 +237,9 @@ function runGame() {
 
   function step(actions) {
     if (screen === SCREEN_TITLE) return;
-    const axis = input.axis();
-    const events = stepWorld(world, STEP, {
-      ax: axis.x,
-      az: axis.z,
-      run: input.runHeld(),
-      interact: !!(actions & ACT.INTERACT),
-      shoot: !!(actions & ACT.SHOOT),
-      reload: !!(actions & ACT.RELOAD),
-      camYaw,
-    });
+    const keys = input.move();
+    keys.camYaw = camYaw;
+    const events = world.step(STEP, keys, actions & (ACTION.INTERACT | ACTION.SHOOT | ACTION.RELOAD));
     handleEvents(events);
   }
 
@@ -252,15 +248,15 @@ function runGame() {
     const dt = Math.min((now - last) / 1000, MAX_FRAME);
     last = now;
     const actions = handleActions();
-    const mouse = input.takeDrag();
+    const mouse = input.takeMouse();
     const wheel = input.takeWheel();
-    if (wheel !== 0) camDist = clamp(camDist * (1 + wheel * 0.0006), 6, 16);
+    if (wheel !== 0) camDist = clamp(camDist * (1 + wheel * 0.0006), CAMERA.zoomMin, CAMERA.zoomMax);
     if (mouse.dx !== 0 || mouse.dy !== 0) {
       camYaw -= mouse.dx * 0.004;
       lastDragAt = now / 1000;
     } else if (screen === SCREEN_PLAY) {
-      const p = world.player;
-      const moving = p.inCar ? Math.abs(p.speed) > 2 : true;
+      const p = world.state.player;
+      const moving = p.inCar ? Math.abs(p.inCar.speed) > 2 : true;
       if (moving && now / 1000 - lastDragAt > 1.5) {
         camYaw += clamp(angleDiff(camYaw, p.heading), -1.1 * dt, 1.1 * dt);
       }
@@ -283,12 +279,12 @@ function runGame() {
         saveTimer = 0;
         writeSave();
       }
-      const p = world.player;
-      const speedNorm = p.inCar ? Math.abs(p.speed) / 30 : 0;
-      audio.update(dt, speedNorm, world.wanted);
-      hudBound.update(world, promptFor());
+      const p = world.state.player;
+      const speedNorm = p.inCar ? Math.abs(p.inCar.speed) / 30 : 0;
+      audio.update(dt, speedNorm, world.state.wanted);
+      hud.update(world.state, promptFor());
     }
-    renderer.draw(world, camYaw, screen, camDist, now / 1000);
+    renderer.draw(world.state, camYaw, screen, camDist, now / 1000);
   }
 
   document.addEventListener('visibilitychange', () => {

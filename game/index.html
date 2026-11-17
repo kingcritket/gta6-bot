@@ -3,72 +3,61 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Port Vela — game crime open-world: kota pelabuhan, curi mobil, polisi, dan lima misi Rook & Mara.">
+<meta name="description" content="Port Vela — game crime open-world di browser: curi mobil, kabur dari polisi, dan selesaikan lima misi Rook & Mara.">
 <link rel="icon" href="data:,">
-<title>Port Vela — Open World</title>
+<title>Port Vela — Open-World Crime</title>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0b0e13; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #f2ede3; }
-  #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0a0d12; font-family: 'Segoe UI', system-ui, sans-serif; color: #f2f2f2; }
+  #game { display: block; width: 100vw; height: 100vh; }
   #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
-  .panel { position: absolute; background: rgba(8, 11, 16, 0.62); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; padding: 8px 12px; backdrop-filter: blur(2px); }
-  #top-left { top: 12px; left: 12px; min-width: 230px; }
-  #cash { font-size: 22px; font-weight: 800; color: #ffd166; letter-spacing: 0.5px; }
-  #mission { font-size: 14px; font-weight: 700; margin-top: 2px; }
-  #objective { font-size: 12px; opacity: 0.85; margin-top: 2px; max-width: 300px; }
-  #top-right { top: 12px; right: 12px; text-align: right; }
-  #stars { font-size: 22px; letter-spacing: 3px; color: #ffd166; }
-  #wanted-label { font-size: 11px; opacity: 0.8; }
-  #bottom-left { left: 12px; bottom: 12px; width: 210px; }
-  #health-row { display: flex; align-items: center; gap: 8px; }
-  #health-bar { flex: 1; height: 12px; background: rgba(255,255,255,0.15); border-radius: 6px; overflow: hidden; }
-  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #e4572e, #f6aa1c); }
-  #health-text { font-size: 12px; font-weight: 700; }
-  #ammo { margin-top: 6px; font-size: 14px; font-weight: 700; }
-  #ammo small { font-weight: 400; opacity: 0.75; }
-  #prompt { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); background: rgba(8, 11, 16, 0.7); border: 1px solid rgba(255, 209, 102, 0.55); color: #ffe9a8; padding: 7px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; display: none; white-space: nowrap; }
-  #message { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); background: rgba(8, 11, 16, 0.72); border: 1px solid rgba(255,255,255,0.16); padding: 7px 16px; border-radius: 8px; font-size: 14px; display: none; max-width: 80vw; text-align: center; }
-  #minimap { position: absolute; right: 12px; bottom: 12px; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; background: rgba(10, 14, 20, 0.8); }
-  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(6, 8, 12, 0.72); z-index: 5; }
-  #overlay-card { max-width: 560px; width: calc(100vw - 48px); background: rgba(14, 18, 26, 0.94); border: 1px solid rgba(255, 209, 102, 0.4); border-radius: 14px; padding: 26px 28px; text-align: center; }
-  #overlay-title { margin: 0 0 10px; font-size: 34px; letter-spacing: 4px; color: #ffd166; }
-  #overlay-lines p { margin: 8px 0; font-size: 15px; line-height: 1.5; opacity: 0.92; }
-  #overlay-buttons { margin-top: 18px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-  #overlay-buttons button { pointer-events: auto; cursor: pointer; font: inherit; font-weight: 700; font-size: 15px; color: #14100a; background: #ffd166; border: none; border-radius: 9px; padding: 11px 20px; }
-  #overlay-buttons button:hover { background: #ffcf4d; }
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .panel { position: absolute; background: rgba(8, 12, 18, 0.72); border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 10px 14px; }
+  #cash-box { top: 14px; left: 14px; }
+  #cash { font-size: 26px; font-weight: 800; color: #7ee787; letter-spacing: 0.5px; }
+  #mission-box { top: 14px; left: 50%; transform: translateX(-50%); text-align: center; max-width: 46vw; }
+  #mission { font-size: 15px; font-weight: 700; }
+  #objective { font-size: 13px; opacity: 0.9; margin-top: 2px; }
+  #stats-box { top: 14px; right: 14px; text-align: right; }
+  #stars { font-size: 20px; letter-spacing: 3px; }
+  #health-bar { width: 150px; height: 10px; background: #333; border-radius: 5px; overflow: hidden; margin-top: 6px; }
+  #health-fill { height: 100%; width: 100%; background: #2ecc71; }
+  #health-text { font-size: 12px; opacity: 0.9; }
+  #ammo { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  #prompt { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%); font-size: 16px; font-weight: 600; background: rgba(8,12,18,0.75); padding: 8px 16px; border-radius: 8px; }
+  #message { position: absolute; bottom: 150px; left: 50%; transform: translateX(-50%); font-size: 15px; background: rgba(8,12,18,0.75); padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity 0.3s; }
+  #minimap { position: absolute; right: 14px; bottom: 14px; width: 180px; height: 180px; border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; background: #20242a; }
+  #status { position: absolute; left: 14px; bottom: 14px; font-size: 12px; opacity: 0.65; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(8, 10, 14, 0.82); text-align: center; padding: 20px; z-index: 10; }
+  #overlay-title { font-size: 54px; font-weight: 900; letter-spacing: 6px; margin: 0 0 12px; color: #ffd94d; text-shadow: 0 3px 18px rgba(0,0,0,0.7); }
+  #overlay-lines p { font-size: 16px; line-height: 1.55; max-width: 620px; margin: 6px auto; opacity: 0.92; }
+  #overlay-buttons { margin-top: 22px; display: flex; gap: 12px; }
+  #overlay-buttons button { pointer-events: auto; font-size: 17px; font-weight: 700; padding: 12px 26px; border-radius: 9px; border: none; background: #ffd94d; color: #191410; cursor: pointer; }
+  #overlay-buttons button:hover { background: #ffe27a; }
 </style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+</script>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="hud">
-  <div class="panel" id="top-left">
-    <div id="cash">$0</div>
-    <div id="mission">Port Vela</div>
-    <div id="objective"></div>
-  </div>
-  <div class="panel" id="top-right">
-    <div id="stars"></div>
-    <div id="wanted-label">WANTED</div>
-  </div>
-  <div class="panel" id="bottom-left">
-    <div id="health-row"><div id="health-bar"><div id="health-fill"></div></div><span id="health-text">100</span></div>
-    <div id="ammo">🔫 <span id="ammo-count">12</span> <small>/ 12 &nbsp;·&nbsp; R isi ulang</small></div>
+  <div class="panel" id="cash-box"><div id="cash">$0</div></div>
+  <div class="panel" id="mission-box"><div id="mission">Port Vela</div><div id="objective"></div></div>
+  <div class="panel" id="stats-box">
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="health-bar"><div id="health-fill"></div></div>
+    <div id="health-text">100</div>
+    <div id="ammo">12 / 12</div>
   </div>
   <div id="prompt"></div>
   <div id="message"></div>
-  <canvas id="minimap" width="168" height="168"></canvas>
+  <canvas id="minimap" width="180" height="180"></canvas>
+  <div id="status"></div>
 </div>
 <div id="overlay">
-  <div id="overlay-card">
-    <h1 id="overlay-title">PORT VELA</h1>
-    <div id="overlay-lines"></div>
-    <div id="overlay-buttons"></div>
-  </div>
+  <h1 id="overlay-title">PORT VELA</h1>
+  <div id="overlay-lines"></div>
+  <div id="overlay-buttons"></div>
 </div>
-<div id="status" aria-live="polite"></div>
-<script type="importmap">
-{ "imports": { "three": "./vendor/three/three.module.min.js" } }
-</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
