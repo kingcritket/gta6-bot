@@ -44,6 +44,9 @@ export function buildCity(seed) {
       }
       for (const [lx0, lx1, lz0, lz1] of lots) {
         if (rng.chance(0.18)) continue; // an empty lot keeps the city breathing
+        // The docks are an open waterfront, not a building lot: the boards
+        // and the harbour water stay clear of towers.
+        if (lx1 > 16 && lx0 < 64 && lz1 > 95 && lz0 < 113) continue;
         const w = lx1 - lx0 - rng.range(2, 5);
         const d = lz1 - lz0 - rng.range(2, 5);
         const cx = (lx0 + lx1) / 2;

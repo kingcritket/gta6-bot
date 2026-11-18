@@ -38,6 +38,7 @@ export function stageShot(name, world) {
     if (parked) {
       parked.kind = 'player';
       parked.mine = true;
+      parked.color = '#e74c3c'; // hero car: bright red, reads at a glance
       parked.x = 20;
       parked.z = 60;
       parked.heading = Math.PI;
@@ -48,19 +49,94 @@ export function stageShot(name, world) {
       s.player.heading = parked.heading;
     }
     world.setMission(1);
+    s.cash = 500; // mission 1's reward: the chase happens after the first job
     s.wanted = 1;
     s.spawnPolice = 1;
     s.policeTimer = 0;
-    driveForward(world, 2.5);
-    // Stage the pursuing cop just behind the player's car.
+    driveForward(world, 2.0);
+    // The pursuing cop belongs IN the frame: head-on, lights flashing, on
+    // the same street ahead of the player — behind the player it would sit
+    // behind the chase camera and never be seen.
     const cop = s.cars.find((c) => c.kind === 'police');
     if (cop) {
-      const back = { x: Math.sin(s.player.heading), z: Math.cos(s.player.heading) };
-      cop.x = s.player.x - back.x * 13;
-      cop.z = s.player.z - back.z * 13;
-      cop.heading = s.player.heading;
-      cop.speed = 20;
+      cop.x = s.player.x;
+      cop.z = s.player.z - 18;
+      cop.heading = 0;
+      cop.speed = 12;
+      cop.axis = 'z';
+      cop.line = 20;
+      cop.along = cop.z;
+      cop.dir = 1;
     }
+    // A car ahead on the same street so the road reads busy, not empty.
+    const ahead = s.cars.find((c) => c.kind === 'traffic');
+    if (ahead) {
+      ahead.x = 20;
+      ahead.z = s.player.z - 30;
+      ahead.heading = Math.PI;
+      ahead.speed = 8;
+      ahead.axis = 'z';
+      ahead.line = 20;
+      ahead.along = ahead.z;
+      ahead.dir = -1;
+    }
+    // The drive can run a pedestrian over: the toast is noise in the shot.
+    s.toast = '';
+    s.toastT = 0;
+    return { camYaw: s.player.heading, screen: SCREEN_PLAY, camDist: 1 };
+  }
+  if (name === 'docks') {
+    // The waterfront: Rook drives south down the strip toward the docks,
+    // the harbour water straight ahead, a cop waiting on the boards.
+    world.reset();
+    const s = world.state;
+    const parked = s.cars.find((c) => c.kind === 'parked');
+    if (parked) {
+      parked.kind = 'player';
+      parked.mine = true;
+      parked.color = '#e74c3c';
+      parked.x = 60;
+      parked.z = 60;
+      parked.heading = 0;
+      parked.speed = 0;
+      s.player.inCar = parked;
+      s.player.x = parked.x;
+      s.player.z = parked.z;
+      s.player.heading = parked.heading;
+    }
+    world.setMission(1);
+    s.cash = 1400;
+    s.wanted = 1;
+    s.spawnPolice = 1;
+    s.policeTimer = 0;
+    driveForward(world, 2.0);
+    // A cop waiting on the docks boards, head-on, lights flashing — the
+    // harbour water just behind it.
+    const cop = s.cars.find((c) => c.kind === 'police');
+    if (cop) {
+      cop.x = 60;
+      cop.z = 108;
+      cop.heading = Math.PI;
+      cop.speed = 0;
+      cop.axis = 'z';
+      cop.line = 60;
+      cop.along = cop.z;
+      cop.dir = -1;
+    }
+    // A car ahead on the same street so the road reads busy.
+    const ahead = s.cars.find((c) => c.kind === 'traffic');
+    if (ahead) {
+      ahead.x = 60;
+      ahead.z = s.player.z + 12;
+      ahead.heading = 0;
+      ahead.speed = 8;
+      ahead.axis = 'z';
+      ahead.line = 60;
+      ahead.along = ahead.z;
+      ahead.dir = 1;
+    }
+    s.toast = '';
+    s.toastT = 0;
     return { camYaw: s.player.heading, screen: SCREEN_PLAY, camDist: 1 };
   }
   // 'end': the plaza shootout, mission 4, mid-fight.
@@ -74,7 +150,9 @@ export function stageShot(name, world) {
   idle(world, 1.2);
   s2.player.health = 79;
   s2.player.ammo = 7;
-  return { camYaw: Math.PI, screen: SCREEN_PLAY, camDist: 1 };
+  s2.toast = '';
+  s2.toastT = 0;
+  return { camYaw: Math.PI, screen: SCREEN_PLAY, camDist: 1.1 };
 }
 
 export { SITES };

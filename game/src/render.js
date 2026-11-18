@@ -4,7 +4,57 @@
 import * as THREE from 'three';
 import { CAMERA, CITY_HALF, EV, STREETS } from './config.js';
 
-function windowTexture() {
+// Deterministic decoration rng: the city seed drives it, so the same seed
+// always builds the same skyline, clouds and rooftops.
+function mulberry32(a) {
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function skyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  // The background is screen-space, so the warm band sits where the
+  // horizon falls on screen (~half height) instead of at the texture's
+  // bottom, where the ground would hide it.
+  grad.addColorStop(0, '#4f8fc4');
+  grad.addColorStop(0.35, '#8fc0e4');
+  grad.addColorStop(0.48, '#ffd9a3');
+  grad.addColorStop(0.55, '#ffcf9a');
+  grad.addColorStop(1, '#ffcf9a');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 4, 512);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255, 244, 200, 0.9)');
+  grad.addColorStop(0.4, 'rgba(255, 220, 150, 0.35)');
+  grad.addColorStop(1, 'rgba(255, 220, 150, 0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function windowTexture(lit, seed) {
+  const rng = mulberry32(seed);
   const c = document.createElement('canvas');
   c.width = 128;
   c.height = 256;
@@ -18,9 +68,9 @@ function windowTexture() {
     }
   }
   g.fillStyle = 'rgba(255, 214, 120, 0.85)';
-  for (let i = 0; i < 12; i++) {
-    const x = 12 + Math.floor(Math.random() * 5) * 24;
-    const y = 14 + Math.floor(Math.random() * 9) * 26;
+  for (let i = 0; i < lit; i++) {
+    const x = 12 + Math.floor(rng() * 5) * 24;
+    const y = 14 + Math.floor(rng() * 9) * 26;
     g.fillRect(x, y, 14, 16);
   }
   const t = new THREE.CanvasTexture(c);
@@ -58,6 +108,27 @@ function groundTexture(city) {
       g.fillRect(toPx(s) - 0.25 * m, toPx(t) - 1.5 * m, 0.5 * m, 3 * m);
     }
   }
+  // Road edge lines.
+  g.fillStyle = 'rgba(232, 228, 210, 0.55)';
+  for (const s of STREETS) {
+    g.fillRect(0, toPx(s + 4.7) - 0.12 * m, S, 0.24 * m);
+    g.fillRect(0, toPx(s - 4.7) - 0.12 * m, S, 0.24 * m);
+    g.fillRect(toPx(s + 4.7) - 0.12 * m, 0, 0.24 * m, S);
+    g.fillRect(toPx(s - 4.7) - 0.12 * m, 0, 0.24 * m, S);
+  }
+  // Zebra crossings at every intersection: bars parallel to traffic, one
+  // crossing on each approach.
+  g.fillStyle = '#e8e4d2';
+  for (const sx of STREETS) {
+    for (const sz of STREETS) {
+      for (const dx of [-1, 1]) {
+        for (let k = -4; k <= 4; k++) {
+          g.fillRect(toPx(sx + dx * 6.6) - 1.6 * m, toPx(sz + k * 1.05) - 0.28 * m, 3.2 * m, 0.56 * m);
+          g.fillRect(toPx(sx + k * 1.05) - 0.28 * m, toPx(sz + dx * 6.6) - 1.6 * m, 0.56 * m, 3.2 * m);
+        }
+      }
+    }
+  }
   // Plaza.
   g.fillStyle = '#d8cbb2';
   g.beginPath();
@@ -68,6 +139,22 @@ function groundTexture(city) {
   g.beginPath();
   g.arc(toPx(0), toPx(0), 15 * m, 0, Math.PI * 2);
   g.stroke();
+  // Plaza paving: concentric rings and radial joints, so the big open
+  // circle reads as a designed square instead of empty beige.
+  g.strokeStyle = 'rgba(138, 127, 106, 0.55)';
+  g.lineWidth = 1.5;
+  for (const r of [5, 10, 13]) {
+    g.beginPath();
+    g.arc(toPx(0), toPx(0), r * m, 0, Math.PI * 2);
+    g.stroke();
+  }
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2;
+    g.beginPath();
+    g.moveTo(toPx(Math.cos(a) * 5), toPx(Math.sin(a) * 5));
+    g.lineTo(toPx(Math.cos(a) * 15), toPx(Math.sin(a) * 15));
+    g.stroke();
+  }
   // Docks: wooden boards at the south edge.
   g.fillStyle = '#8a6f4d';
   g.fillRect(toPx(city.docks.x - city.docks.w / 2), toPx(city.docks.z - city.docks.d / 2), city.docks.w * m, city.docks.d * m);
@@ -123,6 +210,23 @@ function makeCarMesh(color, isPolice) {
     hl.position.set(x, 0.62, 2.16);
     g.add(hl);
   }
+  // Taillights: the chase camera looks at the rear of the car more than
+  // anything else, so the back gets its own glow.
+  const tailMat = new THREE.MeshLambertMaterial({ color: '#ff2a2a', emissive: '#c01010', emissiveIntensity: 0.8 });
+  for (const x of [-0.6, 0.6]) {
+    const tl = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.08), tailMat);
+    tl.position.set(x, 0.62, -2.16);
+    g.add(tl);
+  }
+  // Taxi sign on yellow cabs.
+  if (color === '#f1c40f') {
+    const sign = new THREE.Mesh(
+      new THREE.BoxGeometry(0.55, 0.16, 0.28),
+      new THREE.MeshLambertMaterial({ color: '#222222', emissive: '#ffd94d', emissiveIntensity: 0.9 }),
+    );
+    sign.position.set(0, 1.48, -0.25);
+    g.add(sign);
+  }
   let barRed = null;
   let barBlue = null;
   if (isPolice) {
@@ -153,11 +257,14 @@ export function createRenderer(canvas) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#87b5d9');
-  scene.fog = new THREE.Fog('#a8c4dc', 160, 320);
-  const hemi = new THREE.HemisphereLight('#fff2d8', '#5a6b52', 0.9);
-  const sun = new THREE.DirectionalLight('#ffe8b8', 1.6);
-  sun.position.set(80, 120, 40);
+  // Sun-soaked sky: blue zenith melting into a warm golden horizon.
+  scene.background = skyTexture();
+  scene.fog = new THREE.Fog('#dcc7a4', 170, 340);
+  const hemi = new THREE.HemisphereLight('#fff2d8', '#5a6b52', 0.95);
+  // Low sun in the east: it lights the faces the title camera (looking
+  // west from the east side) and the chase camera (looking north) see.
+  const sun = new THREE.DirectionalLight('#ffe3b0', 1.7);
+  sun.position.set(140, 55, 70);
   scene.add(hemi, sun);
 
   const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 600);
@@ -173,10 +280,13 @@ export function createRenderer(canvas) {
     diamond: null,
     flash: null,
     water: null,
+    beacon: null,
+    clouds: null,
   };
 
   function buildStatic(city) {
     builtCity = city;
+    const m4 = new THREE.Matrix4();
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(CITY_HALF * 2 + 20, CITY_HALF * 2 + 20),
       new THREE.MeshLambertMaterial({ map: groundTexture(city) }),
@@ -184,20 +294,74 @@ export function createRenderer(canvas) {
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    const winTex = windowTexture();
+    const srng = mulberry32(city.seed ^ 0x51ab);
+    const winTexes = [windowTexture(8, 101), windowTexture(16, 202), windowTexture(26, 303)];
+    const ROOFS = ['#4a4640', '#5d4a3a', '#3f4a3f', '#6b5a4a', '#54423a', '#46525e'];
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    for (const b of city.buildings) {
-      const mat = new THREE.MeshLambertMaterial({ map: winTex, color: b.tint });
+    const acSpots = [];
+    const towerSpots = [];
+    let tallest = null;
+    for (let bi = 0; bi < city.buildings.length; bi++) {
+      const b = city.buildings[bi];
+      const mat = new THREE.MeshLambertMaterial({ map: winTexes[bi % 3], color: b.tint });
       const mesh = new THREE.Mesh(boxGeo, mat);
       mesh.scale.set(b.w, b.h, b.d);
       mesh.position.set(b.x, b.h / 2, b.z);
       scene.add(mesh);
+      // Roofs vary in colour instead of one flat brown slab.
       const roof = new THREE.Mesh(
         new THREE.BoxGeometry(b.w + 0.4, 0.5, b.d + 0.4),
-        new THREE.MeshLambertMaterial({ color: '#4a4640' }),
+        new THREE.MeshLambertMaterial({ color: ROOFS[bi % ROOFS.length] }),
       );
       roof.position.set(b.x, b.h + 0.25, b.z);
       scene.add(roof);
+      // Rooftop clutter: AC boxes on most roofs, water towers on the tall ones.
+      const nAc = 1 + Math.floor(srng() * 3);
+      for (let k = 0; k < nAc; k++) {
+        acSpots.push({
+          x: b.x + (srng() - 0.5) * (b.w - 3),
+          z: b.z + (srng() - 0.5) * (b.d - 3),
+          y: b.h + 0.7,
+          s: 0.9 + srng() * 0.7,
+        });
+      }
+      if (b.h >= 22) towerSpots.push({ x: b.x + b.w * 0.22, z: b.z + b.d * 0.22, y: b.h });
+      if (!tallest || b.h > tallest.h) tallest = b;
+    }
+    const acGeo = new THREE.BoxGeometry(1.4, 0.9, 1.4);
+    const acs = new THREE.InstancedMesh(acGeo, new THREE.MeshLambertMaterial({ color: '#8a8f96' }), acSpots.length);
+    acSpots.forEach((a, i) => {
+      m4.makeScale(a.s, 1, a.s);
+      m4.setPosition(a.x, a.y, a.z);
+      acs.setMatrixAt(i, m4);
+    });
+    scene.add(acs);
+    const tankGeo = new THREE.CylinderGeometry(1.1, 1.1, 2.2, 10);
+    const tanks = new THREE.InstancedMesh(tankGeo, new THREE.MeshLambertMaterial({ color: '#7a5c3e' }), towerSpots.length);
+    const coneGeo = new THREE.ConeGeometry(1.35, 1.1, 10);
+    const cones = new THREE.InstancedMesh(coneGeo, new THREE.MeshLambertMaterial({ color: '#5d4630' }), towerSpots.length);
+    towerSpots.forEach((t, i) => {
+      m4.identity();
+      m4.setPosition(t.x, t.y + 1.6, t.z);
+      tanks.setMatrixAt(i, m4);
+      m4.setPosition(t.x, t.y + 3.2, t.z);
+      cones.setMatrixAt(i, m4);
+    });
+    scene.add(tanks, cones);
+    // Spire + blinking beacon on the tallest tower: the Vela Tower landmark.
+    if (tallest) {
+      const spire = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.14, 0.22, 9, 8),
+        new THREE.MeshLambertMaterial({ color: '#2e3138' }),
+      );
+      spire.position.set(tallest.x, tallest.h + 4.5, tallest.z);
+      const beacon = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 10, 8),
+        new THREE.MeshLambertMaterial({ color: '#ff2a2a', emissive: '#ff2020', emissiveIntensity: 1.5 }),
+      );
+      beacon.position.set(tallest.x, tallest.h + 9.2, tallest.z);
+      scene.add(spire, beacon);
+      dyn.beacon = beacon;
     }
 
     // Fountain: basin ring + water disc.
@@ -226,7 +390,6 @@ export function createRenderer(canvas) {
     const leafGeo = new THREE.ConeGeometry(1.5, 3.4, 8);
     const leafMat = new THREE.MeshLambertMaterial({ color: '#3e7d3a' });
     const leaves = new THREE.InstancedMesh(leafGeo, leafMat, city.trees.length);
-    const m4 = new THREE.Matrix4();
     city.trees.forEach((t, i) => {
       m4.makeScale(t.s, t.s, t.s);
       m4.setPosition(t.x, 0.8 * t.s, t.z);
@@ -241,8 +404,8 @@ export function createRenderer(canvas) {
     const poleGeo = new THREE.CylinderGeometry(0.07, 0.09, 4.6, 6);
     const poleMat = new THREE.MeshLambertMaterial({ color: '#2e3138' });
     const poles = new THREE.InstancedMesh(poleGeo, poleMat, city.lamps.length);
-    const headGeo = new THREE.SphereGeometry(0.22, 8, 6);
-    const headMat = new THREE.MeshLambertMaterial({ color: '#fff2b0', emissive: '#ffdf80', emissiveIntensity: 0.9 });
+    const headGeo = new THREE.SphereGeometry(0.16, 8, 6);
+    const headMat = new THREE.MeshLambertMaterial({ color: '#fff2b0', emissive: '#ffdf80', emissiveIntensity: 0.6 });
     const heads = new THREE.InstancedMesh(headGeo, headMat, city.lamps.length);
     city.lamps.forEach((l, i) => {
       m4.identity();
@@ -252,6 +415,121 @@ export function createRenderer(canvas) {
       heads.setMatrixAt(i, m4);
     });
     scene.add(poles, heads);
+
+    // Sun disc + glow, low in the east: the golden-hour light source.
+    const sunDir = new THREE.Vector3(140, 55, 70).normalize();
+    const sunPos = sunDir.clone().multiplyScalar(380);
+    const sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(16, 24),
+      new THREE.MeshBasicMaterial({ color: '#fff6c8', fog: false }),
+    );
+    sunDisc.position.copy(sunPos);
+    sunDisc.lookAt(0, 0, 0);
+    const sunGlow = new THREE.Mesh(
+      new THREE.CircleGeometry(58, 24),
+      new THREE.MeshBasicMaterial({ map: glowTexture(), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }),
+    );
+    sunGlow.position.copy(sunPos);
+    sunGlow.lookAt(0, 0, 0);
+    scene.add(sunDisc, sunGlow);
+
+    // Clouds: flattened white puffs in one instanced mesh, drifting slowly
+    // around the city as a group.
+    const cloudSpots = [];
+    for (let i = 0; i < 12; i++) {
+      const cx = (srng() - 0.5) * 320;
+      const cz = (srng() - 0.5) * 320;
+      const cy = 55 + srng() * 25;
+      const puffs = 2 + Math.floor(srng() * 3);
+      for (let k = 0; k < puffs; k++) {
+        cloudSpots.push({
+          x: cx + (srng() - 0.5) * 10,
+          y: cy + (srng() - 0.5) * 2,
+          z: cz + (srng() - 0.5) * 5,
+          s: 4 + srng() * 5,
+        });
+      }
+    }
+    const cloudGroup = new THREE.Group();
+    // Unlit white: Lambert-shaded clouds read as grey blobs from below.
+    const clouds = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 10, 8),
+      new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.95 }),
+      cloudSpots.length,
+    );
+    cloudSpots.forEach((c, i) => {
+      m4.makeScale(c.s, c.s * 0.42, c.s * 0.7);
+      m4.setPosition(c.x, c.y, c.z);
+      clouds.setMatrixAt(i, m4);
+    });
+    cloudGroup.add(clouds);
+    scene.add(cloudGroup);
+    dyn.clouds = cloudGroup;
+
+    // Distant skyline: hazy silhouettes beyond the city edge so the horizon
+    // reads as a bigger city, not empty fog. Far, short and pale: too close
+    // or too tall and they read as grey walls blocking the view.
+    const skyMat = new THREE.MeshLambertMaterial({ color: '#b3c3d4' });
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2 + srng() * 0.15;
+      const r = 220 + srng() * 60;
+      const w = 14 + srng() * 18;
+      const h = 12 + srng() * 22;
+      const d = 14 + srng() * 18;
+      const m = new THREE.Mesh(boxGeo, skyMat);
+      m.scale.set(w, h, d);
+      m.position.set(Math.cos(a) * r, h / 2 - 1, Math.sin(a) * r);
+      scene.add(m);
+    }
+
+    // Traffic lights at every intersection corner: pole, head box and three
+    // lamps, one lit (green or red, alternating by corner).
+    const tlPoles = [];
+    const tlHeads = [];
+    const tlDots = [];
+    for (const sx of STREETS) {
+      for (const sz of STREETS) {
+        const px = sx + 7.2;
+        const pz = sz + 7.2;
+        tlPoles.push({ x: px, z: pz });
+        tlHeads.push({ x: px, z: pz });
+        const lit = (Math.round(sx + sz) % 2 === 0) ? 2 : 0;
+        const lampY = [3.3, 2.95, 2.6];
+        const lampC = ['#ff2a2a', '#ffb020', '#2aff5a'];
+        for (let k = 0; k < 3; k++) {
+          tlDots.push({ x: px, y: lampY[k], z: pz, color: k === lit ? lampC[k] : '#3a3f45', bright: k === lit });
+        }
+      }
+    }
+    const tlPoleGeo = new THREE.CylinderGeometry(0.06, 0.08, 3.4, 6);
+    const tlPoleMesh = new THREE.InstancedMesh(tlPoleGeo, new THREE.MeshLambertMaterial({ color: '#2e3138' }), tlPoles.length);
+    tlPoles.forEach((t, i) => {
+      m4.identity();
+      m4.setPosition(t.x, 1.7, t.z);
+      tlPoleMesh.setMatrixAt(i, m4);
+    });
+    scene.add(tlPoleMesh);
+    const tlHeadGeo = new THREE.BoxGeometry(0.34, 1.1, 0.18);
+    const tlHeadMesh = new THREE.InstancedMesh(tlHeadGeo, new THREE.MeshLambertMaterial({ color: '#1a1d22' }), tlHeads.length);
+    tlHeads.forEach((t, i) => {
+      m4.identity();
+      m4.setPosition(t.x, 2.95, t.z);
+      tlHeadMesh.setMatrixAt(i, m4);
+    });
+    scene.add(tlHeadMesh);
+    const tlDotGeo = new THREE.SphereGeometry(0.12, 8, 6);
+    // Basic material: an instance colour tints it, while a Lambert emissive
+    // would leave every lamp glowing white whatever its colour.
+    const tlDotMesh = new THREE.InstancedMesh(tlDotGeo, new THREE.MeshBasicMaterial({ color: '#ffffff' }), tlDots.length);
+    const tmpColor = new THREE.Color();
+    tlDots.forEach((t, i) => {
+      m4.identity();
+      m4.setPosition(t.x, t.y, t.z);
+      tlDotMesh.setMatrixAt(i, m4);
+      tmpColor.set(t.color);
+      tlDotMesh.setColorAt(i, tmpColor);
+    });
+    scene.add(tlDotMesh);
 
     // Mission marker: light beam + floating diamond.
     const beam = new THREE.Mesh(
@@ -302,7 +580,7 @@ export function createRenderer(canvas) {
     return g;
   }
 
-  function draw(state, camYaw, screen, camDist, time) {
+  function draw(state, camYaw, screen, camDist, time, snap) {
     if (!builtCity) buildStatic(state.city);
     const p = state.player;
 
@@ -384,20 +662,33 @@ export function createRenderer(canvas) {
     // Water shimmer.
     if (dyn.water) dyn.water.position.y = 1.05 + Math.sin(time * 1.8) * 0.04;
 
+    // Vela Tower beacon blinks; clouds drift slowly around the city.
+    if (dyn.beacon) dyn.beacon.material.emissiveIntensity = 1.2 + Math.sin(time * 3) * 1.1;
+    if (dyn.clouds) dyn.clouds.rotation.y = time * 0.004;
+
     // Camera.
     if (screen === 'title') {
+      // A postcard orbit: high enough to clear the rooftops, looking out
+      // toward the horizon — the skyline, the haze and the sky fill the
+      // frame behind the title instead of one roof seen from above.
       const a = time * 0.07;
-      camera.position.set(Math.cos(a) * 62, 34, Math.sin(a) * 62);
-      camera.lookAt(0, 2, 0);
+      camera.position.set(Math.cos(a) * 45, 42, Math.sin(a) * 45);
+      camera.lookAt(-Math.cos(a) * 80, 15, -Math.sin(a) * 80);
     } else {
       const dist = CAMERA.dist * camDist;
       const back = { x: Math.sin(camYaw), z: Math.cos(camYaw) };
       const tx = p.x - back.x * dist;
       const tz = p.z - back.z * dist;
       const ty = CAMERA.height * (0.7 + camDist * 0.35);
-      camPos.x += (tx - camPos.x) * 0.12;
-      camPos.y += (ty - camPos.y) * 0.12;
-      camPos.z += (tz - camPos.z) * 0.12;
+      if (snap) {
+        // Staged screenshots: the camera is already where it belongs instead
+        // of still lerping in from its spawn point.
+        camPos.set(tx, ty, tz);
+      } else {
+        camPos.x += (tx - camPos.x) * 0.12;
+        camPos.y += (ty - camPos.y) * 0.12;
+        camPos.z += (tz - camPos.z) * 0.12;
+      }
       camera.position.copy(camPos);
       camera.lookAt(p.x + back.x * 4, 1.6, p.z + back.z * 4);
     }

@@ -42,6 +42,7 @@ const hud = createHud({
   promptEl: document.getElementById('prompt'),
   messageEl: document.getElementById('message'),
   minimap: document.getElementById('minimap'),
+  speedEl: document.getElementById('speed'),
 });
 
 function readSave() {
@@ -102,7 +103,7 @@ function runShot(name) {
   camYaw = scene.camYaw;
   let painted = 0;
   function paint() {
-    renderer.draw(world.state, camYaw, scene.screen, scene.camDist || 1, world.state.time + painted * 0.05);
+    renderer.draw(world.state, camYaw, scene.screen, scene.camDist || 1, world.state.time + painted * 0.05, true);
     hud.update(world.state, '');
     painted += 1;
     if (painted < 3) requestAnimationFrame(paint);

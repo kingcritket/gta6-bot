@@ -30,6 +30,10 @@ export function createHud(els) {
     ctx.beginPath();
     ctx.arc(px(0), px(0), 7, 0, Math.PI * 2);
     ctx.fill();
+    // Harbour water at the docks.
+    const d = state.city.docks;
+    ctx.fillStyle = '#5d7f9e';
+    ctx.fillRect(px(d.x - d.w / 2), px(d.z + d.d / 2), d.w * scale, 6 * scale);
     const m = state.marker;
     if (m.active) {
       ctx.fillStyle = '#ffd94d';
@@ -81,7 +85,11 @@ export function createHud(els) {
     els.healthFill.style.background = p.health > 50 ? '#2ecc71' : p.health > 25 ? '#f39c12' : '#e74c3c';
     els.healthText.textContent = `${Math.ceil(Math.max(0, p.health))}`;
     els.ammoEl.textContent = p.reloading > 0 ? '──' : `${p.ammo} / 12`;
+    // An empty prompt must not render as a dark pill in the middle of the
+    // screen (it did exactly that in every staged screenshot).
+    els.promptEl.style.display = prompt ? 'block' : 'none';
     els.promptEl.textContent = prompt || '';
+    els.speedEl.textContent = p.inCar ? `${Math.round(Math.abs(p.speed) * 3.6)} km/j` : '';
     if (state.toast && state.time * 1000 > toastUntil) {
       els.messageEl.textContent = state.toast;
       els.messageEl.style.opacity = '1';

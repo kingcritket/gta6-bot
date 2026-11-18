@@ -60,8 +60,8 @@ function newState(world) {
     peds: [],
     enemies: [],
   };
-  for (let i = 0; i < 8; i++) state.cars.push(spawnParkedCar(world));
-  for (let i = 0; i < 10; i++) state.cars.push(spawnTrafficCar(world));
+  for (let i = 0; i < 9; i++) state.cars.push(spawnParkedCar(world));
+  for (let i = 0; i < 12; i++) state.cars.push(spawnTrafficCar(world));
   for (let i = 0; i < 26; i++) state.peds.push(spawnPed(world));
   MISSIONS[0].setup(state);
   return state;
