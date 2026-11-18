@@ -2,7 +2,7 @@
 // a scene from the game's own sim, renders it, and sets window.__shotReady.
 // Nothing here is a mock: every staged scene is the real world stepped
 // forward by the real rules.
-import { SITES, SCREEN_PLAY, SCREEN_TITLE } from './config.js';
+import { QUIET_SECONDS, SITES, SCREEN_PLAY, SCREEN_TITLE } from './config.js';
 
 function driveForward(world, seconds) {
   const keys = { f: 1, s: 0, run: false, camYaw: world.state.player.heading };
@@ -14,6 +14,21 @@ function idle(world, seconds) {
   const keys = { f: 0, s: 0, run: false, camYaw: world.state.player.heading };
   const steps = Math.round(seconds * 60);
   for (let i = 0; i < steps; i++) world.step(1 / 60, keys, 0);
+}
+
+// Recompute the chase readout from the staged car positions: after the
+// cops are hand-placed, the values left over from the drive are stale.
+function syncCopProximity(s) {
+  let nearest = Infinity;
+  for (const c of s.cars) {
+    if (c.kind === 'police' && c.active) {
+      nearest = Math.min(nearest, Math.hypot(c.x - s.player.x, c.z - s.player.z));
+    }
+  }
+  s.nearestCop = nearest;
+  s.hideIn = s.wanted > 0 && nearest > 35
+    ? Math.max(0, Math.ceil(QUIET_SECONDS - s.quietTimer))
+    : 0;
 }
 
 export function stageShot(name, world) {
@@ -50,29 +65,39 @@ export function stageShot(name, world) {
     }
     world.setMission(1);
     s.cash = 500; // mission 1's reward: the chase happens after the first job
-    s.wanted = 1;
-    s.spawnPolice = 1;
+    s.wanted = 2;
+    s.spawnPolice = 2;
     s.policeTimer = 0;
     driveForward(world, 2.0);
-    // The pursuing cop belongs IN the frame: head-on, lights flashing, on
-    // the same street ahead of the player — behind the player it would sit
-    // behind the chase camera and never be seen.
-    const cop = s.cars.find((c) => c.kind === 'police');
-    if (cop) {
-      cop.x = s.player.x;
-      cop.z = s.player.z - 18;
-      cop.heading = 0;
-      cop.speed = 12;
-      cop.axis = 'z';
-      cop.line = 20;
-      cop.along = cop.z;
-      cop.dir = 1;
+    // TWO pursuing cops IN the frame, head-on, lights flashing, on the same
+    // street ahead of the player — behind the player they would sit behind
+    // the chase camera and never be seen.
+    const cops = s.cars.filter((c) => c.kind === 'police');
+    if (cops[0]) {
+      cops[0].x = s.player.x;
+      cops[0].z = s.player.z - 12;
+      cops[0].heading = 0;
+      cops[0].speed = 12;
+      cops[0].axis = 'z';
+      cops[0].line = 20;
+      cops[0].along = cops[0].z;
+      cops[0].dir = 1;
+    }
+    if (cops[1]) {
+      cops[1].x = s.player.x - 3.5;
+      cops[1].z = s.player.z - 24;
+      cops[1].heading = 0;
+      cops[1].speed = 12;
+      cops[1].axis = 'z';
+      cops[1].line = 20;
+      cops[1].along = cops[1].z;
+      cops[1].dir = 1;
     }
     // A car ahead on the same street so the road reads busy, not empty.
     const ahead = s.cars.find((c) => c.kind === 'traffic');
     if (ahead) {
       ahead.x = 20;
-      ahead.z = s.player.z - 30;
+      ahead.z = s.player.z - 36;
       ahead.heading = Math.PI;
       ahead.speed = 8;
       ahead.axis = 'z';
@@ -83,6 +108,7 @@ export function stageShot(name, world) {
     // The drive can run a pedestrian over: the toast is noise in the shot.
     s.toast = '';
     s.toastT = 0;
+    syncCopProximity(s);
     return { camYaw: s.player.heading, screen: SCREEN_PLAY, camDist: 1 };
   }
   if (name === 'docks') {
@@ -106,22 +132,32 @@ export function stageShot(name, world) {
     }
     world.setMission(1);
     s.cash = 1400;
-    s.wanted = 1;
-    s.spawnPolice = 1;
+    s.wanted = 2;
+    s.spawnPolice = 2;
     s.policeTimer = 0;
     driveForward(world, 2.0);
-    // A cop waiting on the docks boards, head-on, lights flashing — the
-    // harbour water just behind it.
-    const cop = s.cars.find((c) => c.kind === 'police');
-    if (cop) {
-      cop.x = 60;
-      cop.z = 108;
-      cop.heading = Math.PI;
-      cop.speed = 0;
-      cop.axis = 'z';
-      cop.line = 60;
-      cop.along = cop.z;
-      cop.dir = -1;
+    // TWO cops waiting on the docks boards, head-on, lights flashing — the
+    // harbour water just behind them.
+    const cops = s.cars.filter((c) => c.kind === 'police');
+    if (cops[0]) {
+      cops[0].x = 60;
+      cops[0].z = 108;
+      cops[0].heading = Math.PI;
+      cops[0].speed = 0;
+      cops[0].axis = 'z';
+      cops[0].line = 60;
+      cops[0].along = cops[0].z;
+      cops[0].dir = -1;
+    }
+    if (cops[1]) {
+      cops[1].x = 50;
+      cops[1].z = 104;
+      cops[1].heading = Math.PI;
+      cops[1].speed = 0;
+      cops[1].axis = 'z';
+      cops[1].line = 60;
+      cops[1].along = cops[1].z;
+      cops[1].dir = -1;
     }
     // A car ahead on the same street so the road reads busy.
     const ahead = s.cars.find((c) => c.kind === 'traffic');
@@ -137,6 +173,7 @@ export function stageShot(name, world) {
     }
     s.toast = '';
     s.toastT = 0;
+    syncCopProximity(s);
     return { camYaw: s.player.heading, screen: SCREEN_PLAY, camDist: 1 };
   }
   // 'end': the plaza shootout, mission 4, mid-fight.
@@ -152,6 +189,7 @@ export function stageShot(name, world) {
   s2.player.ammo = 7;
   s2.toast = '';
   s2.toastT = 0;
+  syncCopProximity(s2);
   return { camYaw: Math.PI, screen: SCREEN_PLAY, camDist: 1.1 };
 }
 

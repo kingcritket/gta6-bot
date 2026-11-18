@@ -44,6 +44,8 @@ function newState(world) {
     wanted: 0,
     quietTimer: 0,
     bustTimer: 0,
+    nearestCop: Infinity,
+    hideIn: 0,
     spawnPolice: 0,
     policeTimer: 0,
     lastShotAt: -100,
@@ -656,6 +658,8 @@ function stepPolice(world, dt) {
   if (state.wanted === 0) {
     state.cars = state.cars.filter((c) => c.kind !== 'police');
     state.bustTimer = 0;
+    state.nearestCop = Infinity;
+    state.hideIn = 0;
     return;
   }
   let nearest = Infinity;
@@ -703,6 +707,11 @@ function stepPolice(world, dt) {
   } else {
     state.quietTimer = Math.max(0, state.quietTimer - dt * 3);
   }
+  // Expose the chase for the HUD's lose-the-cops readout.
+  state.nearestCop = nearest;
+  state.hideIn = state.wanted > 0 && nearest > 35
+    ? Math.max(0, Math.ceil(QUIET_SECONDS - state.quietTimer))
+    : 0;
 }
 
 function stepWorld(world, dt, keys, actions) {

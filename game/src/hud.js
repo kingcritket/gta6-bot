@@ -81,6 +81,20 @@ export function createHud(els) {
     for (let i = 0; i < 5; i++) stars += i < state.wanted ? '★' : '☆';
     els.starsEl.textContent = stars;
     els.starsEl.style.color = state.wanted > 0 ? '#ffd94d' : '#888888';
+    // Lose-the-cops readout: chase warning while a patrol car is close,
+    // hiding countdown once every cop is far enough to lose the trail.
+    if (state.wanted > 0) {
+      if (state.nearestCop > 35) {
+        els.wantedNoteEl.textContent = `SEMBUNYI… bintang turun dalam ${Math.max(1, state.hideIn)} dtk`;
+        els.wantedNoteEl.style.color = '#ffd94d';
+      } else {
+        els.wantedNoteEl.textContent = 'POLISI MENDEKAT — KABUR!';
+        els.wantedNoteEl.style.color = '#ff6b6b';
+      }
+      els.wantedNoteEl.style.display = 'block';
+    } else {
+      els.wantedNoteEl.style.display = 'none';
+    }
     els.healthFill.style.width = `${Math.max(0, p.health)}%`;
     els.healthFill.style.background = p.health > 50 ? '#2ecc71' : p.health > 25 ? '#f39c12' : '#e74c3c';
     els.healthText.textContent = `${Math.ceil(Math.max(0, p.health))}`;

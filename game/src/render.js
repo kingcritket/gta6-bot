@@ -53,6 +53,40 @@ function glowTexture() {
   return t;
 }
 
+function strobeTexture(color) {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+  grad.addColorStop(0, color);
+  grad.addColorStop(0.4, color);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// White POLICE lettering for the rear window: the face the chase camera
+// sees most. Transparent background so the dark cabin shows through.
+function policePlateTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 256, 64);
+  g.fillStyle = '#ffffff';
+  g.font = '900 42px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('POLICE', 128, 34);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function windowTexture(lit, seed) {
   const rng = mulberry32(seed);
   const c = document.createElement('canvas');
@@ -229,7 +263,25 @@ function makeCarMesh(color, isPolice) {
   }
   let barRed = null;
   let barBlue = null;
+  let glowRed = null;
+  let glowBlue = null;
+  let pool = null;
   if (isPolice) {
+    // Black band around the body: the black-and-white patrol-car paint.
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(1.96, 0.2, 4.34),
+      new THREE.MeshLambertMaterial({ color: '#15181d' }),
+    );
+    band.position.set(0, 0.58, 0);
+    g.add(band);
+    // POLICE lettering on the cabin's rear face (the chase camera's view).
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 0.35),
+      new THREE.MeshBasicMaterial({ map: policePlateTexture(), transparent: true }),
+    );
+    plate.position.set(0, 1.1, -1.32);
+    plate.rotation.y = Math.PI;
+    g.add(plate);
     const bar = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.14, 0.3), new THREE.MeshLambertMaterial({ color: '#111318' }));
     bar.position.set(0, 1.45, -0.25);
     barRed = new THREE.Mesh(
@@ -243,10 +295,36 @@ function makeCarMesh(color, isPolice) {
     );
     barBlue.position.set(0.28, 1.5, -0.25);
     g.add(bar, barRed, barBlue);
+    // Strobe halos: camera-facing sprites, so the flash reads from any
+    // angle and any distance instead of a 4-pixel light bar.
+    const mkGlow = (color, x) => {
+      const m = new THREE.SpriteMaterial({
+        map: strobeTexture(color), transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      const s = new THREE.Sprite(m);
+      s.scale.set(3.0, 3.0, 1);
+      s.position.set(x, 1.6, -0.25);
+      return s;
+    };
+    glowRed = mkGlow('#ff2a2a', -0.28);
+    glowBlue = mkGlow('#2a6bff', 0.28);
+    g.add(glowRed, glowBlue);
+    // A pool of coloured light on the road under the car.
+    pool = new THREE.Mesh(
+      new THREE.CircleGeometry(3.4, 24),
+      new THREE.MeshBasicMaterial({ color: '#ff2a2a', transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = 0.05;
+    g.add(pool);
   }
   g.userData.wheels = wheels;
   g.userData.barRed = barRed;
   g.userData.barBlue = barBlue;
+  g.userData.glowRed = glowRed;
+  g.userData.glowBlue = glowBlue;
+  g.userData.pool = pool;
   return g;
 }
 
@@ -610,6 +688,12 @@ export function createRenderer(canvas) {
         const phase = Math.floor(time * 4) % 2 === 0;
         if (g.userData.barRed) g.userData.barRed.material.emissiveIntensity = phase ? 2.2 : 0.15;
         if (g.userData.barBlue) g.userData.barBlue.material.emissiveIntensity = phase ? 0.15 : 2.2;
+        if (g.userData.glowRed) g.userData.glowRed.material.opacity = phase ? 0.85 : 0.07;
+        if (g.userData.glowBlue) g.userData.glowBlue.material.opacity = phase ? 0.07 : 0.85;
+        if (g.userData.pool) {
+          g.userData.pool.material.color.set(phase ? '#ff2a2a' : '#2a6bff');
+          g.userData.pool.material.opacity = 0.3;
+        }
       }
     }
     for (const [id, g] of dyn.cars) {

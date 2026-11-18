@@ -36,6 +36,7 @@ const hud = createHud({
   missionEl: document.getElementById('mission'),
   objectiveEl: document.getElementById('objective'),
   starsEl: document.getElementById('stars'),
+  wantedNoteEl: document.getElementById('wanted-note'),
   healthFill: document.getElementById('health-fill'),
   healthText: document.getElementById('health-text'),
   ammoEl: document.getElementById('ammo'),

@@ -18,7 +18,7 @@ node serve.ts
 - A 240×240 m procedural city: streets, buildings with lit windows, Plaza Vela with a fountain, palms, street lamps and the docks
 - On foot (WASD, Shift to run) and by car — steal any car with **E**
 - Traffic (10 cars) and pedestrians (26) who flee gunfire and speeding cars
-- Wanted level 0–5 with police AI that chases, rams and busts you
+- Wanted level 0–5 with police pursuit: patrol cars in black-and-white paint chase you down the street grid, ram your car and bust you on foot — red/blue strobes flash with a light pool on the road and a POLICE plate on the rear window, and the HUD warns "POLISI MENDEKAT — KABUR!" or counts down the hiding seconds until a star fades ("lose the cops")
 - Pistol combat (**F** / click to shoot, **R** to reload) against the Kobra gang
 - 5 story missions: steal a car, deliver a package, evade a 2-star wanted level, take back the plaza, and one last bank score — $9,400 in total
 - HUD with cash, mission tracker, wanted stars, health, ammo and a live 2D minimap
